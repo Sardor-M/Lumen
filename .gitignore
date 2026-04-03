@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+*.tgz
+
+# Lumen user data (local knowledge base, not part of the project)
+.lumen/
+
+/docs   
