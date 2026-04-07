@@ -86,8 +86,8 @@ const SCHEMA = `
 `;
 
 export function createSchema(db: Database.Database): void {
-  db.exec(SCHEMA);
-  db.pragma(`user_version = ${CURRENT_VERSION}`);
+    db.exec(SCHEMA);
+    db.pragma(`user_version = ${CURRENT_VERSION}`);
 }
 
 export { CURRENT_VERSION };
