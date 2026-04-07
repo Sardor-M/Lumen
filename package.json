@@ -1,55 +1,75 @@
 {
-  "name": "lumen-kb",
-  "version": "0.1.0",
-  "description": "Intelligent knowledge compiler — ingest, chunk, search, and compile any reading into a structured knowledge graph",
-  "type": "module",
-  "bin": {
-    "lumen": "./dist/cli.js"
-  },
-  "scripts": {
-    "dev": "tsx src/cli.ts",
-    "build": "tsup src/cli.ts --format esm --dts --clean",
-    "start": "node dist/cli.js",
-    "lint": "tsc --noEmit",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "benchmark": "tsx src/cli.ts benchmark"
-  },
-  "keywords": [
-    "cli",
-    "knowledge-base",
-    "knowledge-graph",
-    "llm",
-    "search",
-    "bm25",
-    "tfidf",
-    "pagerank",
-    "sqlite",
-    "markdown",
-    "ai",
-    "compiler"
-  ],
-  "author": "Sardor Madaminov",
-  "license": "PolyForm-Shield-1.0.0",
-  "dependencies": {
-    "@anthropic-ai/sdk": "^0.39.0",
-    "@extractus/article-extractor": "^8.0.14",
-    "better-sqlite3": "^11.8.1",
-    "chalk": "^5.4.1",
-    "commander": "^13.1.0",
-    "ora": "^8.2.0",
-    "pdf-parse": "^1.1.1"
-  },
-  "devDependencies": {
-    "@types/better-sqlite3": "^7.6.12",
-    "@types/node": "^22.13.10",
-    "@types/pdf-parse": "^1.1.4",
-    "tsup": "^8.4.0",
-    "tsx": "^4.19.3",
-    "typescript": "^5.8.2",
-    "vitest": "^3.1.1"
-  },
-  "engines": {
-    "node": ">=18"
-  }
+    "name": "lumen-kb",
+    "version": "0.1.0",
+    "description": "Intelligent knowledge compiler — ingest, chunk, search, and compile any reading into a structured knowledge graph",
+    "type": "module",
+    "bin": {
+        "lumen": "./dist/cli.js"
+    },
+    "scripts": {
+        "dev": "tsx src/cli.ts",
+        "build": "tsup src/cli.ts --format esm --dts --clean",
+        "start": "node dist/cli.js",
+        "lint": "eslint src/ && tsc --noEmit",
+        "format": "prettier --write src/",
+        "format:check": "prettier --check src/",
+        "test": "vitest run",
+        "test:watch": "vitest",
+        "benchmark": "tsx src/cli.ts benchmark",
+        "prepare": "husky"
+    },
+    "keywords": [
+        "cli",
+        "knowledge-base",
+        "knowledge-graph",
+        "llm",
+        "search",
+        "bm25",
+        "tfidf",
+        "pagerank",
+        "sqlite",
+        "markdown",
+        "ai",
+        "compiler"
+    ],
+    "author": "Sardor Madaminov",
+    "license": "PolyForm-Shield-1.0.0",
+    "dependencies": {
+        "@anthropic-ai/sdk": "^0.39.0",
+        "@extractus/article-extractor": "^8.0.14",
+        "better-sqlite3": "^11.8.1",
+        "chalk": "^5.4.1",
+        "commander": "^13.1.0",
+        "ora": "^8.2.0",
+        "pdf-parse": "^1.1.1"
+    },
+    "devDependencies": {
+        "@types/better-sqlite3": "^7.6.12",
+        "@types/node": "^22.13.10",
+        "@types/pdf-parse": "^1.1.4",
+        "@typescript-eslint/eslint-plugin": "^8.58.0",
+        "@typescript-eslint/parser": "^8.58.0",
+        "eslint": "^10.2.0",
+        "eslint-config-prettier": "^10.1.8",
+        "husky": "^9.1.7",
+        "lint-staged": "^16.4.0",
+        "prettier": "^3.8.1",
+        "prettier-plugin-tailwindcss": "^0.7.2",
+        "tsup": "^8.4.0",
+        "tsx": "^4.19.3",
+        "typescript": "^5.8.2",
+        "vitest": "^3.1.1"
+    },
+    "lint-staged": {
+        "*.ts": [
+            "prettier --write",
+            "eslint --fix"
+        ],
+        "*.{json,md,yml,yaml}": [
+            "prettier --write"
+        ]
+    },
+    "engines": {
+        "node": ">=18"
+    }
 }
