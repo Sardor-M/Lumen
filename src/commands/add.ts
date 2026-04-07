@@ -1,5 +1,6 @@
 import type { Command } from 'commander';
 import { ingestInput, detectSourceType } from '../ingest/file.js';
+import { IngestError } from '../ingest/errors.js';
 import { chunk } from '../chunker/index.js';
 import { getDb } from '../store/database.js';
 import { insertSource } from '../store/sources.js';
@@ -75,7 +76,12 @@ export function registerAdd(program: Command): void {
                     Chunks: chunks.length,
                 });
             } catch (err) {
-                log.error(err instanceof Error ? err.message : String(err));
+                if (err instanceof IngestError) {
+                    log.error(`[${err.code}] ${err.message}`);
+                    if (err.hint) log.dim(`  Hint: ${err.hint}`);
+                } else {
+                    log.error(err instanceof Error ? err.message : String(err));
+                }
                 process.exitCode = 1;
             }
         });

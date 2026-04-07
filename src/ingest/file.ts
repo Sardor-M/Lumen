@@ -1,32 +1,35 @@
-import { readFileSync, statSync, readdirSync } from 'node:fs';
+import { readFileSync, statSync, readdirSync, accessSync, constants } from 'node:fs';
 import { join, extname } from 'node:path';
 import type { ExtractionResult, SourceType } from '../types/index.js';
+import { IngestError, withRetry } from './errors.js';
 import { extractUrl } from './url.js';
 import { extractPdf } from './pdf.js';
 import { extractYoutube } from './youtube.js';
 import { extractArxiv } from './arxiv.js';
 
 /**
- * Detect input type and route to the appropriate extractor.
- * Supports: URLs, PDFs, YouTube, arXiv, local markdown/text files, and folders.
+ * Detect input type, route to the appropriate extractor,
+ * and retry transient failures automatically.
  */
 export async function ingestInput(input: string): Promise<ExtractionResult> {
     const sourceType = detectSourceType(input);
 
-    switch (sourceType) {
-        case 'youtube':
-            return extractYoutube(input);
-        case 'arxiv':
-            return extractArxiv(input);
-        case 'url':
-            return extractUrl(input);
-        case 'pdf':
-            return extractPdf(input);
-        case 'file':
-            return extractLocalFile(input);
-        case 'folder':
-            return extractFolder(input);
-    }
+    return withRetry(() => {
+        switch (sourceType) {
+            case 'youtube':
+                return extractYoutube(input);
+            case 'arxiv':
+                return extractArxiv(input);
+            case 'url':
+                return extractUrl(input);
+            case 'pdf':
+                return extractPdf(input);
+            case 'file':
+                return Promise.resolve(extractLocalFile(input));
+            case 'folder':
+                return Promise.resolve(extractFolder(input));
+        }
+    });
 }
 
 /** Detect the source type from the input string. */
@@ -50,14 +53,20 @@ export function detectSourceType(input: string): SourceType {
         if (extname(input).toLowerCase() === '.pdf') return 'pdf';
         return 'file';
     } catch {
-        throw new Error(`Input not found: ${input}`);
+        throw new IngestError('NOT_FOUND', `Input not found: ${input}`);
     }
 }
 
 /** Extract content from a local text/markdown file. */
 function extractLocalFile(path: string): ExtractionResult {
+    try {
+        accessSync(path, constants.R_OK);
+    } catch {
+        throw new IngestError('PERMISSION', `Cannot read file (permission denied): ${path}`);
+    }
+
     const content = readFileSync(path, 'utf-8');
-    if (!content.trim()) throw new Error(`Empty file: ${path}`);
+    if (!content.trim()) throw new IngestError('NO_CONTENT', `Empty file: ${path}`);
 
     const filename = path.split('/').pop() || path;
     const title = filename.replace(/\.\w+$/, '').replace(/[-_]/g, ' ');
@@ -77,8 +86,18 @@ function extractLocalFile(path: string): ExtractionResult {
  * Each file becomes a section with a heading.
  */
 function extractFolder(dir: string): ExtractionResult {
+    try {
+        accessSync(dir, constants.R_OK);
+    } catch {
+        throw new IngestError('PERMISSION', `Cannot read directory (permission denied): ${dir}`);
+    }
+
     const files = collectFiles(dir);
-    if (files.length === 0) throw new Error(`No readable files found in: ${dir}`);
+    if (files.length === 0) {
+        throw new IngestError('NO_CONTENT', `No readable text files found in: ${dir}`, {
+            hint: 'Supported extensions: .md, .txt, .markdown, .rst, .org, .adoc, .tex',
+        });
+    }
 
     const sections = files.map((f) => {
         const content = readFileSync(f, 'utf-8');

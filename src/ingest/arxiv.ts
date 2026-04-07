@@ -1,4 +1,5 @@
 import type { ExtractionResult } from '../types/index.js';
+import { IngestError, errorFromStatus } from './errors.js';
 import { extractPdf } from './pdf.js';
 
 /**
@@ -7,14 +8,27 @@ import { extractPdf } from './pdf.js';
  */
 export async function extractArxiv(input: string): Promise<ExtractionResult> {
     const arxivId = parseArxivId(input);
-    if (!arxivId) throw new Error(`Invalid arXiv URL or ID: ${input}`);
+    if (!arxivId) throw new IngestError('MALFORMED', `Invalid arXiv URL or ID: ${input}`);
 
     /** Fetch metadata from the arXiv Atom API. */
     const apiUrl = `https://export.arxiv.org/api/query?id_list=${arxivId}`;
-    const res = await fetch(apiUrl);
-    if (!res.ok) throw new Error(`arXiv API error: ${res.status}`);
+    let res: Response;
+    try {
+        res = await fetch(apiUrl, { signal: AbortSignal.timeout(15000) });
+    } catch (err) {
+        if (err instanceof DOMException && err.name === 'TimeoutError') {
+            throw new IngestError('TIMEOUT', `arXiv API timed out for: ${arxivId}`, { retryable: true });
+        }
+        throw new IngestError('NETWORK', `Failed to reach arXiv API: ${arxivId}`, { retryable: true });
+    }
+    if (!res.ok) throw errorFromStatus(res.status, apiUrl);
 
     const xml = await res.text();
+
+    /** Detect invalid paper IDs (arXiv returns XML with no entries). */
+    if (!xml.includes('<entry>')) {
+        throw new IngestError('NOT_FOUND', `No arXiv paper found for ID: ${arxivId}`);
+    }
 
     const title =
         xml
@@ -33,9 +47,10 @@ export async function extractArxiv(input: string): Promise<ExtractionResult> {
     try {
         const pdfResult = await extractPdf(pdfUrl);
         fullText = pdfResult.content;
-    } catch {
+    } catch (err) {
         /** Fall back to abstract-only if PDF extraction fails. */
-        fullText = `# ${title}\n\n## Abstract\n\n${summary}`;
+        const reason = err instanceof IngestError ? err.code : 'unknown';
+        fullText = `# ${title}\n\n## Abstract\n\n${summary}\n\n---\n*Note: PDF extraction failed (${reason}). Only the abstract is available.*`;
     }
 
     return {

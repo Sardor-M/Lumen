@@ -1,6 +1,7 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import pdf from 'pdf-parse';
 import type { ExtractionResult } from '../types/index.js';
+import { IngestError, errorFromStatus } from './errors.js';
 
 /**
  * Extract text content and metadata from a PDF file.
@@ -10,16 +11,45 @@ export async function extractPdf(source: string): Promise<ExtractionResult> {
     let buffer: Buffer;
 
     if (source.startsWith('http://') || source.startsWith('https://')) {
-        const res = await fetch(source);
-        if (!res.ok) throw new Error(`Failed to fetch PDF: ${res.status} ${res.statusText}`);
+        let res: Response;
+        try {
+            res = await fetch(source, { signal: AbortSignal.timeout(30000) });
+        } catch (err) {
+            if (err instanceof DOMException && err.name === 'TimeoutError') {
+                throw new IngestError('TIMEOUT', `PDF download timed out: ${source}`, {
+                    retryable: true,
+                    hint: 'The PDF is large or the server is slow. Try downloading it manually.',
+                });
+            }
+            throw new IngestError('NETWORK', `Failed to download PDF: ${source}`, { retryable: true });
+        }
+        if (!res.ok) throw errorFromStatus(res.status, source);
         buffer = Buffer.from(await res.arrayBuffer());
     } else {
+        if (!existsSync(source)) {
+            throw new IngestError('NOT_FOUND', `File not found: ${source}`);
+        }
         buffer = readFileSync(source);
     }
 
-    const data = await pdf(buffer);
+    if (buffer.length === 0) {
+        throw new IngestError('NO_CONTENT', `PDF file is empty: ${source}`);
+    }
 
-    if (!data.text?.trim()) throw new Error(`No extractable text in PDF: ${source}`);
+    let data: Awaited<ReturnType<typeof pdf>>;
+    try {
+        data = await pdf(buffer);
+    } catch (err) {
+        throw new IngestError('MALFORMED', `Failed to parse PDF: ${source}`, {
+            hint: `The PDF may be corrupted, encrypted, or scanned (image-only). Error: ${err instanceof Error ? err.message : err}`,
+        });
+    }
+
+    if (!data.text?.trim()) {
+        throw new IngestError('NO_CONTENT', `No extractable text in PDF: ${source}`, {
+            hint: 'This PDF may contain only scanned images. OCR is not yet supported.',
+        });
+    }
 
     return {
         title: data.info?.Title || filenameFromPath(source),

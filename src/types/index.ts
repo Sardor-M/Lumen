@@ -124,6 +124,19 @@ export type LumenConfig = {
     };
 };
 
+export type IngestErrorCode =
+    | 'PAYWALL'
+    | 'JS_RENDERED'
+    | 'RATE_LIMITED'
+    | 'NOT_FOUND'
+    | 'MALFORMED'
+    | 'NO_CONTENT'
+    | 'NO_CAPTIONS'
+    | 'NETWORK'
+    | 'TIMEOUT'
+    | 'PERMISSION'
+    | 'UNKNOWN';
+
 export type WikiStats = {
     source_count: number;
     chunk_count: number;
