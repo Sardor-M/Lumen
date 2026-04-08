@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
+import { registerInit } from './commands/init.js';
 import { registerAdd } from './commands/add.js';
 import { registerSearch } from './commands/search.js';
+import { registerStatus } from './commands/status.js';
 
 const program = new Command();
 
@@ -12,7 +14,9 @@ program
     )
     .version('0.1.0');
 
+registerInit(program);
 registerAdd(program);
 registerSearch(program);
+registerStatus(program);
 
 program.parse();
