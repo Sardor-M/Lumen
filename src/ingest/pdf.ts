@@ -21,7 +21,9 @@ export async function extractPdf(source: string): Promise<ExtractionResult> {
                     hint: 'The PDF is large or the server is slow. Try downloading it manually.',
                 });
             }
-            throw new IngestError('NETWORK', `Failed to download PDF: ${source}`, { retryable: true });
+            throw new IngestError('NETWORK', `Failed to download PDF: ${source}`, {
+                retryable: true,
+            });
         }
         if (!res.ok) throw errorFromStatus(res.status, source);
         buffer = Buffer.from(await res.arrayBuffer());

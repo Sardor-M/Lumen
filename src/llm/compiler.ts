@@ -34,7 +34,13 @@ export async function compileSource(
     const chunks = getChunksBySource(sourceId);
     if (chunks.length === 0) {
         markCompiled(sourceId);
-        return { source_id: sourceId, concepts_created: [], concepts_updated: [], edges_created: 0, tokens_used: 0 };
+        return {
+            source_id: sourceId,
+            concepts_created: [],
+            concepts_updated: [],
+            edges_created: 0,
+            tokens_used: 0,
+        };
     }
 
     /** Select representative chunks (skip headings-only, limit to ~30 for token budget). */
@@ -46,11 +52,15 @@ export async function compileSource(
     const userPrompt = compileUserPrompt(sourceTitle, representativeChunks);
     const tokensUsed = Math.ceil(userPrompt.length / 4);
 
-    const response = await chatJson<CompileResponse>(config, [{ role: 'user', content: userPrompt }], {
-        system: COMPILE_SYSTEM,
-        maxTokens: 4096,
-        temperature: 0.2,
-    });
+    const response = await chatJson<CompileResponse>(
+        config,
+        [{ role: 'user', content: userPrompt }],
+        {
+            system: COMPILE_SYSTEM,
+            maxTokens: 4096,
+            temperature: 0.2,
+        },
+    );
 
     const now = new Date().toISOString();
     const conceptsCreated: string[] = [];
@@ -92,10 +102,18 @@ export async function compileSource(
         if (!fromSlug || !toSlug_ || fromSlug === toSlug_) continue;
         if (!knownSlugs.has(fromSlug) || !knownSlugs.has(toSlug_)) continue;
 
-        const relation = VALID_RELATIONS.has(edge.relation) ? (edge.relation as RelationType) : 'related';
+        const relation = VALID_RELATIONS.has(edge.relation)
+            ? (edge.relation as RelationType)
+            : 'related';
         const weight = Math.max(0, Math.min(1, edge.weight || 0.5));
 
-        upsertEdge({ from_slug: fromSlug, to_slug: toSlug_, relation, weight, source_id: sourceId });
+        upsertEdge({
+            from_slug: fromSlug,
+            to_slug: toSlug_,
+            relation,
+            weight,
+            source_id: sourceId,
+        });
         edgesCreated++;
     }
 

@@ -34,7 +34,10 @@ function htmlToMarkdown(html: string): string {
     text = text.replace(/<code[^>]*>(.*?)<\/code>/gi, (_, inner) => '`' + stripTags(inner) + '`');
 
     /** Bold / italic. */
-    text = text.replace(/<(strong|b)[^>]*>(.*?)<\/\1>/gi, (_, __, inner) => `**${stripTags(inner)}**`);
+    text = text.replace(
+        /<(strong|b)[^>]*>(.*?)<\/\1>/gi,
+        (_, __, inner) => `**${stripTags(inner)}**`,
+    );
     text = text.replace(/<(em|i)[^>]*>(.*?)<\/\1>/gi, (_, __, inner) => `*${stripTags(inner)}*`);
 
     /** Links. */
@@ -43,7 +46,10 @@ function htmlToMarkdown(html: string): string {
     });
 
     /** Lists. */
-    text = text.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, (_, inner) => `- ${stripTags(inner).trim()}\n`);
+    text = text.replace(
+        /<li[^>]*>([\s\S]*?)<\/li>/gi,
+        (_, inner) => `- ${stripTags(inner).trim()}\n`,
+    );
 
     /** Blockquotes. */
     text = text.replace(/<blockquote[^>]*>([\s\S]*?)<\/blockquote>/gi, (_, inner) => {

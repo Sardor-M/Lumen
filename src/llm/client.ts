@@ -16,11 +16,17 @@ type ChatOptions = {
  * LLM API wrapper with provider routing.
  * Supports Anthropic (direct), OpenRouter, and Ollama.
  */
-export async function chat(config: LumenConfig, messages: ChatMessage[], opts?: ChatOptions): Promise<string> {
+export async function chat(
+    config: LumenConfig,
+    messages: ChatMessage[],
+    opts?: ChatOptions,
+): Promise<string> {
     const { provider, model, api_key, base_url } = config.llm;
 
     if (!api_key && provider !== 'ollama') {
-        throw new Error(`No API key configured. Set ANTHROPIC_API_KEY or run: lumen config --api-key <key>`);
+        throw new Error(
+            `No API key configured. Set ANTHROPIC_API_KEY or run: lumen config --api-key <key>`,
+        );
     }
 
     switch (provider) {
@@ -37,7 +43,11 @@ export async function chat(config: LumenConfig, messages: ChatMessage[], opts?: 
  * Chat and parse the response as JSON.
  * Strips markdown code fences if present.
  */
-export async function chatJson<T>(config: LumenConfig, messages: ChatMessage[], opts?: ChatOptions): Promise<T> {
+export async function chatJson<T>(
+    config: LumenConfig,
+    messages: ChatMessage[],
+    opts?: ChatOptions,
+): Promise<T> {
     const raw = await chat(config, messages, opts);
 
     /** Strip markdown code fences that LLMs often wrap JSON in. */

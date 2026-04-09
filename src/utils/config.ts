@@ -41,7 +41,8 @@ export function loadConfig(): LumenConfig {
     };
 
     if (!config.llm.api_key) {
-        config.llm.api_key = process.env.ANTHROPIC_API_KEY || process.env.OPENROUTER_API_KEY || null;
+        config.llm.api_key =
+            process.env.ANTHROPIC_API_KEY || process.env.OPENROUTER_API_KEY || null;
     }
 
     return config;

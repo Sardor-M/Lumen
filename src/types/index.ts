@@ -1,4 +1,11 @@
-export type ChunkType = 'heading' | 'paragraph' | 'code' | 'list' | 'blockquote' | 'table' | 'frontmatter';
+export type ChunkType =
+    | 'heading'
+    | 'paragraph'
+    | 'code'
+    | 'list'
+    | 'blockquote'
+    | 'table'
+    | 'frontmatter';
 
 export type SourceType = 'url' | 'pdf' | 'youtube' | 'arxiv' | 'file' | 'folder';
 

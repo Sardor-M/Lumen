@@ -5,7 +5,11 @@ export class IngestError extends Error {
     retryable: boolean;
     hint: string;
 
-    constructor(code: IngestErrorCode, message: string, opts?: { retryable?: boolean; hint?: string }) {
+    constructor(
+        code: IngestErrorCode,
+        message: string,
+        opts?: { retryable?: boolean; hint?: string },
+    ) {
         super(message);
         this.name = 'IngestError';
         this.code = code;
@@ -47,7 +51,9 @@ export function detectJsRendered(html: string): boolean {
     const scriptCount = (html.match(/<script/gi) || []).length;
 
     /** Very little text but lots of scripts = JS-rendered page. */
-    return (textLength < 200 && scriptCount > 5) || (hasReactRoot && textLength < 500) || hasNoscript;
+    return (
+        (textLength < 200 && scriptCount > 5) || (hasReactRoot && textLength < 500) || hasNoscript
+    );
 }
 
 /** Detect common paywall indicators in HTML. */
@@ -69,7 +75,11 @@ export function detectPaywall(html: string): boolean {
  * Retry an async operation with exponential backoff.
  * Only retries on errors where `retryable` is true.
  */
-export async function withRetry<T>(fn: () => Promise<T>, maxRetries = 2, baseDelayMs = 1000): Promise<T> {
+export async function withRetry<T>(
+    fn: () => Promise<T>,
+    maxRetries = 2,
+    baseDelayMs = 1000,
+): Promise<T> {
     let lastError: unknown;
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
         try {

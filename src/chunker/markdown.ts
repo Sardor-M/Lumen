@@ -106,7 +106,11 @@ function mergeTiny(chunks: RawChunk[], minTokens: number): RawChunk[] {
     let buffer: RawChunk | null = null;
 
     for (const chunk of chunks) {
-        if (chunk.chunk_type === 'heading' || chunk.chunk_type === 'code' || chunk.chunk_type === 'frontmatter') {
+        if (
+            chunk.chunk_type === 'heading' ||
+            chunk.chunk_type === 'code' ||
+            chunk.chunk_type === 'frontmatter'
+        ) {
             if (buffer) result.push(buffer);
             buffer = null;
             result.push(chunk);
@@ -158,7 +162,11 @@ function splitHuge(chunks: RawChunk[], maxTokens: number): RawChunk[] {
 
         for (const sentence of sentences) {
             if (estimateTokens(current + sentence) > maxTokens && current) {
-                result.push({ content: current.trim(), chunk_type: chunk.chunk_type, heading: chunk.heading });
+                result.push({
+                    content: current.trim(),
+                    chunk_type: chunk.chunk_type,
+                    heading: chunk.heading,
+                });
                 current = sentence;
             } else {
                 current += sentence;
@@ -166,7 +174,11 @@ function splitHuge(chunks: RawChunk[], maxTokens: number): RawChunk[] {
         }
 
         if (current.trim()) {
-            result.push({ content: current.trim(), chunk_type: chunk.chunk_type, heading: chunk.heading });
+            result.push({
+                content: current.trim(),
+                chunk_type: chunk.chunk_type,
+                heading: chunk.heading,
+            });
         }
     }
 

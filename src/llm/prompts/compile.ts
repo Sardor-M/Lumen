@@ -77,7 +77,10 @@ Return a single JSON object with exactly two keys:
 - If a chunk is too short or uninformative, extract fewer concepts. Zero is acceptable.
 - UTF-8 safe. Slugs must be ASCII only (a-z, 0-9, hyphens).`;
 
-export function compileUserPrompt(title: string, chunks: { content: string; heading: string | null }[]): string {
+export function compileUserPrompt(
+    title: string,
+    chunks: { content: string; heading: string | null }[],
+): string {
     const chunkText = chunks
         .map((c, i) => {
             const heading = c.heading ? ` [${c.heading}]` : '';

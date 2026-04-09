@@ -14,7 +14,11 @@ type PageRankResult = {
  * Reference: Page, Brin, Motwani & Winograd,
  * "The PageRank Citation Ranking", 1998.
  */
-export function pagerank(opts?: { damping?: number; iterations?: number; tolerance?: number }): PageRankResult[] {
+export function pagerank(opts?: {
+    damping?: number;
+    iterations?: number;
+    tolerance?: number;
+}): PageRankResult[] {
     const damping = opts?.damping ?? 0.85;
     const maxIter = opts?.iterations ?? 100;
     const tolerance = opts?.tolerance ?? 1e-6;

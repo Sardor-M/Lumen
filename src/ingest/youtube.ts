@@ -20,7 +20,9 @@ export async function extractYoutube(input: string): Promise<ExtractionResult> {
             signal: AbortSignal.timeout(15000),
         });
         if (!pageRes.ok) {
-            throw new IngestError('NETWORK', `Failed to fetch YouTube page: ${pageRes.status}`, { retryable: true });
+            throw new IngestError('NETWORK', `Failed to fetch YouTube page: ${pageRes.status}`, {
+                retryable: true,
+            });
         }
         html = await pageRes.text();
     } catch (err) {
@@ -28,7 +30,9 @@ export async function extractYoutube(input: string): Promise<ExtractionResult> {
         if (err instanceof DOMException && err.name === 'TimeoutError') {
             throw new IngestError('TIMEOUT', `YouTube page timed out: ${url}`, { retryable: true });
         }
-        throw new IngestError('NETWORK', `Network error fetching YouTube: ${url}`, { retryable: true });
+        throw new IngestError('NETWORK', `Network error fetching YouTube: ${url}`, {
+            retryable: true,
+        });
     }
 
     /** Detect unavailable or private videos. */
@@ -39,9 +43,13 @@ export async function extractYoutube(input: string): Promise<ExtractionResult> {
         throw new IngestError('NOT_FOUND', `Video is unavailable or private: ${videoId}`);
     }
     if (html.includes('"playabilityStatus":{"status":"LOGIN_REQUIRED"')) {
-        throw new IngestError('PERMISSION', `Video requires login (age-restricted or private): ${videoId}`, {
-            hint: 'Age-restricted and private videos cannot be accessed without authentication.',
-        });
+        throw new IngestError(
+            'PERMISSION',
+            `Video requires login (age-restricted or private): ${videoId}`,
+            {
+                hint: 'Age-restricted and private videos cannot be accessed without authentication.',
+            },
+        );
     }
     if (html.includes('"playabilityStatus":{"status":"LIVE_STREAM"')) {
         throw new IngestError('NO_CONTENT', `Live streams do not have transcripts: ${videoId}`);
@@ -78,12 +86,16 @@ export async function extractYoutube(input: string): Promise<ExtractionResult> {
 
     /** Prefer English, fall back to first available track. */
     const track =
-        tracks.find((t) => t.languageCode === 'en') || tracks.find((t) => t.languageCode.startsWith('en')) || tracks[0];
+        tracks.find((t) => t.languageCode === 'en') ||
+        tracks.find((t) => t.languageCode.startsWith('en')) ||
+        tracks[0];
 
     /** Fetch the timed text XML and extract plain text. */
     const captionRes = await fetch(track.baseUrl);
     if (!captionRes.ok) {
-        throw new IngestError('NETWORK', `Failed to fetch captions: ${captionRes.status}`, { retryable: true });
+        throw new IngestError('NETWORK', `Failed to fetch captions: ${captionRes.status}`, {
+            retryable: true,
+        });
     }
 
     const xml = await captionRes.text();

@@ -41,7 +41,8 @@ export function shortestPath(fromSlug: string, toSlug: string, maxDepth = 6): Pa
                 const outEdges = getEdgesFrom(current);
                 const inEdges = getEdgesTo(current);
                 const edge =
-                    outEdges.find((e) => e.to_slug === neighbor) || inEdges.find((e) => e.from_slug === neighbor);
+                    outEdges.find((e) => e.to_slug === neighbor) ||
+                    inEdges.find((e) => e.from_slug === neighbor);
 
                 if (edge) parent.set(neighbor, { slug: current, edge });
 
@@ -59,7 +60,11 @@ export function shortestPath(fromSlug: string, toSlug: string, maxDepth = 6): Pa
     return null;
 }
 
-function reconstructPath(from: string, to: string, parent: Map<string, { slug: string; edge: Edge }>): PathResult {
+function reconstructPath(
+    from: string,
+    to: string,
+    parent: Map<string, { slug: string; edge: Edge }>,
+): PathResult {
     const path: string[] = [to];
     const edges: Edge[] = [];
     let current = to;

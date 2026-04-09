@@ -13,7 +13,9 @@ export function insertChunks(chunks: Chunk[]): void {
 }
 
 export function getChunksBySource(sourceId: string): Chunk[] {
-    return getDb().prepare('SELECT * FROM chunks WHERE source_id = ? ORDER BY position').all(sourceId) as Chunk[];
+    return getDb()
+        .prepare('SELECT * FROM chunks WHERE source_id = ? ORDER BY position')
+        .all(sourceId) as Chunk[];
 }
 
 export function getChunk(id: string): Chunk | null {
@@ -51,6 +53,8 @@ export function countChunks(): number {
 }
 
 export function totalTokens(): number {
-    const row = getDb().prepare('SELECT COALESCE(SUM(token_count), 0) as total FROM chunks').get() as { total: number };
+    const row = getDb()
+        .prepare('SELECT COALESCE(SUM(token_count), 0) as total FROM chunks')
+        .get() as { total: number };
     return row.total;
 }

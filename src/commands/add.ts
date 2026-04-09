@@ -52,7 +52,9 @@ export function registerAdd(program: Command): void {
             for (const input of allInputs) {
                 try {
                     const sourceType = opts.type || detectSourceType(input);
-                    log.info(`[${added + skipped + failed + 1}/${allInputs.length}] ${sourceType}: ${input}`);
+                    log.info(
+                        `[${added + skipped + failed + 1}/${allInputs.length}] ${sourceType}: ${input}`,
+                    );
 
                     const result = await ingestInput(input);
 
@@ -96,7 +98,9 @@ export function registerAdd(program: Command): void {
                         words: wordCount,
                     });
 
-                    log.success(`Added "${result.title}" (${chunks.length} chunks, ${wordCount} words)`);
+                    log.success(
+                        `Added "${result.title}" (${chunks.length} chunks, ${wordCount} words)`,
+                    );
                     added++;
                 } catch (err) {
                     failed++;

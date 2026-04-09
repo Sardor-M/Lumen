@@ -12,7 +12,9 @@ import { statSync } from 'node:fs';
 export function registerStatus(program: Command): void {
     program
         .command('status')
-        .description('Show wiki statistics — sources, chunks, concepts, graph density (local, no LLM)')
+        .description(
+            'Show wiki statistics — sources, chunks, concepts, graph density (local, no LLM)',
+        )
         .action(() => {
             try {
                 if (!isInitialized()) {

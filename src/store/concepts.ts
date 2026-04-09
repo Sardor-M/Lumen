@@ -35,7 +35,9 @@ export function deleteConcept(slug: string): void {
 }
 
 export function countConcepts(): number {
-    const row = getDb().prepare('SELECT COUNT(*) as count FROM concepts').get() as { count: number };
+    const row = getDb().prepare('SELECT COUNT(*) as count FROM concepts').get() as {
+        count: number;
+    };
     return row.count;
 }
 
@@ -51,14 +53,18 @@ export function linkSourceConcept(link: SourceConcept): void {
 
 export function getConceptSources(slug: string): string[] {
     const rows = getDb()
-        .prepare('SELECT source_id FROM source_concepts WHERE concept_slug = ? ORDER BY relevance DESC')
+        .prepare(
+            'SELECT source_id FROM source_concepts WHERE concept_slug = ? ORDER BY relevance DESC',
+        )
         .all(slug) as { source_id: string }[];
     return rows.map((r) => r.source_id);
 }
 
 export function getSourceConcepts(sourceId: string): string[] {
     const rows = getDb()
-        .prepare('SELECT concept_slug FROM source_concepts WHERE source_id = ? ORDER BY relevance DESC')
+        .prepare(
+            'SELECT concept_slug FROM source_concepts WHERE source_id = ? ORDER BY relevance DESC',
+        )
         .all(sourceId) as { concept_slug: string }[];
     return rows.map((r) => r.concept_slug);
 }

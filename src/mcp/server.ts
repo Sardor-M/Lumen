@@ -45,12 +45,20 @@ export async function startMcpServer(): Promise<void> {
                     {
                         name: 'bm25',
                         weight: 0.5,
-                        results: bm25.map((r) => ({ chunk_id: r.chunk_id, source_id: r.source_id, score: r.score })),
+                        results: bm25.map((r) => ({
+                            chunk_id: r.chunk_id,
+                            source_id: r.source_id,
+                            score: r.score,
+                        })),
                     },
                     {
                         name: 'tfidf',
                         weight: 0.5,
-                        results: tfidf.map((r) => ({ chunk_id: r.chunk_id, source_id: r.source_id, score: r.score })),
+                        results: tfidf.map((r) => ({
+                            chunk_id: r.chunk_id,
+                            source_id: r.source_id,
+                            score: r.score,
+                        })),
                     },
                 ],
                 60,
@@ -60,7 +68,11 @@ export async function startMcpServer(): Promise<void> {
 
             if (budget) {
                 const selected = selectByBudget(
-                    items.map((r) => ({ chunk_id: r.chunk_id, source_id: r.source_id, score: r.rrf_score })),
+                    items.map((r) => ({
+                        chunk_id: r.chunk_id,
+                        source_id: r.source_id,
+                        score: r.rrf_score,
+                    })),
                     budget,
                 );
                 return {
@@ -84,12 +96,12 @@ export async function startMcpServer(): Promise<void> {
 
             const db = getDb();
             const results = items.map((r) => {
-                const chunk = db.prepare('SELECT content, heading FROM chunks WHERE id = ?').get(r.chunk_id) as
-                    | { content: string; heading: string | null }
-                    | undefined;
-                const source = db.prepare('SELECT title FROM sources WHERE id = ?').get(r.source_id) as
-                    | { title: string }
-                    | undefined;
+                const chunk = db
+                    .prepare('SELECT content, heading FROM chunks WHERE id = ?')
+                    .get(r.chunk_id) as { content: string; heading: string | null } | undefined;
+                const source = db
+                    .prepare('SELECT title FROM sources WHERE id = ?')
+                    .get(r.source_id) as { title: string } | undefined;
                 return {
                     source: source?.title ?? r.source_id,
                     heading: chunk?.heading ?? null,
@@ -147,7 +159,9 @@ export async function startMcpServer(): Promise<void> {
         async ({ slug }) => {
             const concept = getConcept(slug);
             if (!concept) {
-                return { content: [{ type: 'text' as const, text: `Concept "${slug}" not found.` }] };
+                return {
+                    content: [{ type: 'text' as const, text: `Concept "${slug}" not found.` }],
+                };
             }
 
             const outEdges = getEdgesFrom(slug);
@@ -156,8 +170,16 @@ export async function startMcpServer(): Promise<void> {
 
             const result = {
                 ...concept,
-                outgoing_edges: outEdges.map((e) => ({ to: e.to_slug, relation: e.relation, weight: e.weight })),
-                incoming_edges: inEdges.map((e) => ({ from: e.from_slug, relation: e.relation, weight: e.weight })),
+                outgoing_edges: outEdges.map((e) => ({
+                    to: e.to_slug,
+                    relation: e.relation,
+                    weight: e.weight,
+                })),
+                incoming_edges: inEdges.map((e) => ({
+                    from: e.from_slug,
+                    relation: e.relation,
+                    weight: e.weight,
+                })),
                 sources,
             };
             return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
@@ -176,7 +198,14 @@ export async function startMcpServer(): Promise<void> {
         async ({ from, to }) => {
             const result = shortestPath(from, to);
             if (!result) {
-                return { content: [{ type: 'text' as const, text: `No path found between "${from}" and "${to}".` }] };
+                return {
+                    content: [
+                        {
+                            type: 'text' as const,
+                            text: `No path found between "${from}" and "${to}".`,
+                        },
+                    ],
+                };
             }
 
             const pathNames = result.path.map((slug) => ({
@@ -188,7 +217,11 @@ export async function startMcpServer(): Promise<void> {
                 content: [
                     {
                         type: 'text' as const,
-                        text: JSON.stringify({ hops: result.hops, path: pathNames, edges: result.edges }, null, 2),
+                        text: JSON.stringify(
+                            { hops: result.hops, path: pathNames, edges: result.edges },
+                            null,
+                            2,
+                        ),
                     },
                 ],
             };
@@ -211,7 +244,12 @@ export async function startMcpServer(): Promise<void> {
                 name: getConcept(s)?.name ?? s,
             }));
             return {
-                content: [{ type: 'text' as const, text: JSON.stringify({ center: slug, depth, nodes }, null, 2) }],
+                content: [
+                    {
+                        type: 'text' as const,
+                        text: JSON.stringify({ center: slug, depth, nodes }, null, 2),
+                    },
+                ],
             };
         },
     );
@@ -232,15 +270,20 @@ export async function startMcpServer(): Promise<void> {
 
     /** ─── Communities ─── */
 
-    server.tool('communities', 'List detected concept communities (topic clusters).', {}, async () => {
-        const communities = detectCommunities();
-        const results = communities.map((c) => ({
-            id: c.id,
-            size: c.size,
-            members: c.members.map((s) => getConcept(s)?.name ?? s),
-        }));
-        return { content: [{ type: 'text' as const, text: JSON.stringify(results, null, 2) }] };
-    });
+    server.tool(
+        'communities',
+        'List detected concept communities (topic clusters).',
+        {},
+        async () => {
+            const communities = detectCommunities();
+            const results = communities.map((c) => ({
+                id: c.id,
+                size: c.size,
+                members: c.members.map((s) => getConcept(s)?.name ?? s),
+            }));
+            return { content: [{ type: 'text' as const, text: JSON.stringify(results, null, 2) }] };
+        },
+    );
 
     /** ─── Start server ─── */
 

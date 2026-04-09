@@ -62,17 +62,23 @@ export function registerSearch(program: Command): void {
                 const limited = fused.slice(0, limit);
 
                 log.heading(`Search results for "${query}"`);
-                log.dim(`${limited.length} result${limited.length === 1 ? '' : 's'} (BM25 + TF-IDF fusion)\n`);
+                log.dim(
+                    `${limited.length} result${limited.length === 1 ? '' : 's'} (BM25 + TF-IDF fusion)\n`,
+                );
 
                 for (let i = 0; i < limited.length; i++) {
                     const r = limited[i];
-                    const chunk = db.prepare('SELECT content, heading FROM chunks WHERE id = ?').get(r.chunk_id) as
+                    const chunk = db
+                        .prepare('SELECT content, heading FROM chunks WHERE id = ?')
+                        .get(r.chunk_id) as
                         | {
                               content: string;
                               heading: string | null;
                           }
                         | undefined;
-                    const source = db.prepare('SELECT title FROM sources WHERE id = ?').get(r.source_id) as
+                    const source = db
+                        .prepare('SELECT title FROM sources WHERE id = ?')
+                        .get(r.source_id) as
                         | {
                               title: string;
                           }

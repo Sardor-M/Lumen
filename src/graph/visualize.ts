@@ -66,7 +66,12 @@ export function toDot(): string {
         '#52C41A',
     ];
 
-    const lines: string[] = ['digraph knowledge_graph {', '  rankdir=LR;', '  node [shape=box, style=filled];', ''];
+    const lines: string[] = [
+        'digraph knowledge_graph {',
+        '  rankdir=LR;',
+        '  node [shape=box, style=filled];',
+        '',
+    ];
 
     for (const concept of concepts) {
         const cid = communityMap.get(concept.slug) ?? 0;
@@ -79,7 +84,9 @@ export function toDot(): string {
 
     for (const edge of edges) {
         const label = edge.relation.replace(/"/g, '\\"');
-        lines.push(`  "${edge.from_slug}" -> "${edge.to_slug}" [label="${label}", weight=${edge.weight}];`);
+        lines.push(
+            `  "${edge.from_slug}" -> "${edge.to_slug}" [label="${label}", weight=${edge.weight}];`,
+        );
     }
 
     lines.push('}');

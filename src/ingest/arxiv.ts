@@ -17,9 +17,13 @@ export async function extractArxiv(input: string): Promise<ExtractionResult> {
         res = await fetch(apiUrl, { signal: AbortSignal.timeout(15000) });
     } catch (err) {
         if (err instanceof DOMException && err.name === 'TimeoutError') {
-            throw new IngestError('TIMEOUT', `arXiv API timed out for: ${arxivId}`, { retryable: true });
+            throw new IngestError('TIMEOUT', `arXiv API timed out for: ${arxivId}`, {
+                retryable: true,
+            });
         }
-        throw new IngestError('NETWORK', `Failed to reach arXiv API: ${arxivId}`, { retryable: true });
+        throw new IngestError('NETWORK', `Failed to reach arXiv API: ${arxivId}`, {
+            retryable: true,
+        });
     }
     if (!res.ok) throw errorFromStatus(res.status, apiUrl);
 

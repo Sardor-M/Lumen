@@ -15,7 +15,10 @@ export function getSource(id: string): Source | null {
 }
 
 export function getSourceByHash(hash: string): Source | null {
-    return (getDb().prepare('SELECT * FROM sources WHERE content_hash = ?').get(hash) as Source) ?? null;
+    return (
+        (getDb().prepare('SELECT * FROM sources WHERE content_hash = ?').get(hash) as Source) ??
+        null
+    );
 }
 
 export function listSources(opts?: { type?: SourceType; compiled?: boolean }): Source[] {
@@ -44,7 +47,9 @@ export function listSources(opts?: { type?: SourceType; compiled?: boolean }): S
 }
 
 export function markCompiled(id: string): void {
-    getDb().prepare('UPDATE sources SET compiled_at = ? WHERE id = ?').run(new Date().toISOString(), id);
+    getDb()
+        .prepare('UPDATE sources SET compiled_at = ? WHERE id = ?')
+        .run(new Date().toISOString(), id);
 }
 
 export function deleteSource(id: string): void {
@@ -57,7 +62,9 @@ export function countSources(): number {
 }
 
 export function countSourcesByType(): Record<string, number> {
-    const rows = getDb().prepare('SELECT source_type, COUNT(*) as count FROM sources GROUP BY source_type').all() as {
+    const rows = getDb()
+        .prepare('SELECT source_type, COUNT(*) as count FROM sources GROUP BY source_type')
+        .all() as {
         source_type: string;
         count: number;
     }[];

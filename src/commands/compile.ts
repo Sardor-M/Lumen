@@ -19,7 +19,9 @@ export function registerCompile(program: Command): void {
                 getDb();
 
                 if (!config.llm.api_key) {
-                    log.error('No API key configured. Set ANTHROPIC_API_KEY or run: lumen config --api-key <key>');
+                    log.error(
+                        'No API key configured. Set ANTHROPIC_API_KEY or run: lumen config --api-key <key>',
+                    );
                     process.exitCode = 1;
                     return;
                 }
@@ -44,7 +46,8 @@ export function registerCompile(program: Command): void {
                     try {
                         const result = await compileSource(src.id, src.title, config);
 
-                        totalConcepts += result.concepts_created.length + result.concepts_updated.length;
+                        totalConcepts +=
+                            result.concepts_created.length + result.concepts_updated.length;
                         totalEdges += result.edges_created;
                         totalTokens += result.tokens_used;
 
@@ -71,7 +74,9 @@ export function registerCompile(program: Command): void {
                         const reportPath = generateReport();
                         log.success(`Graph report: ${reportPath}`);
                     } catch (err) {
-                        log.warn(`Report generation failed: ${err instanceof Error ? err.message : err}`);
+                        log.warn(
+                            `Report generation failed: ${err instanceof Error ? err.message : err}`,
+                        );
                     }
                 }
 

@@ -87,9 +87,13 @@ export function generateReport(): string {
         lines.push('');
 
         for (const community of communities.slice(0, 15)) {
-            const memberNames = community.members.map((slug) => getConcept(slug)?.name ?? slug).slice(0, 8);
+            const memberNames = community.members
+                .map((slug) => getConcept(slug)?.name ?? slug)
+                .slice(0, 8);
             const suffix = community.size > 8 ? ` +${community.size - 8} more` : '';
-            lines.push(`${community.id + 1}. **[${community.size} concepts]** — ${memberNames.join(', ')}${suffix}`);
+            lines.push(
+                `${community.id + 1}. **[${community.size} concepts]** — ${memberNames.join(', ')}${suffix}`,
+            );
         }
         lines.push('');
     }
@@ -100,7 +104,9 @@ export function generateReport(): string {
         if (crossEdges.length > 0) {
             lines.push('## Surprising Connections');
             lines.push('');
-            lines.push('Edges connecting different communities — these bridge distinct topic clusters.');
+            lines.push(
+                'Edges connecting different communities — these bridge distinct topic clusters.',
+            );
             lines.push('');
 
             for (const ce of crossEdges.slice(0, 10)) {
@@ -130,9 +136,15 @@ export function generateReport(): string {
             lines.push(`- What connects **${gods[0].name}** to **${gods[2].name}**?`);
         }
         if (communities.length >= 2) {
-            const c0members = communities[0].members.slice(0, 2).map((s) => getConcept(s)?.name ?? s);
-            const c1members = communities[1].members.slice(0, 2).map((s) => getConcept(s)?.name ?? s);
-            lines.push(`- How do concepts in [${c0members.join(', ')}] relate to [${c1members.join(', ')}]?`);
+            const c0members = communities[0].members
+                .slice(0, 2)
+                .map((s) => getConcept(s)?.name ?? s);
+            const c1members = communities[1].members
+                .slice(0, 2)
+                .map((s) => getConcept(s)?.name ?? s);
+            lines.push(
+                `- How do concepts in [${c0members.join(', ')}] relate to [${c1members.join(', ')}]?`,
+            );
         }
         lines.push(`- Which concepts are prerequisites for understanding **${gods[0].name}**?`);
         lines.push(`- What contradictions exist in the knowledge base?`);
@@ -151,7 +163,9 @@ type CrossCommunityEdge = {
     toCommunity: number;
 };
 
-function findCrossCommunityEdges(communities: { id: number; members: string[] }[]): CrossCommunityEdge[] {
+function findCrossCommunityEdges(
+    communities: { id: number; members: string[] }[],
+): CrossCommunityEdge[] {
     /** Build slug → community lookup. */
     const slugToCommunity = new Map<string, number>();
     for (const c of communities) {

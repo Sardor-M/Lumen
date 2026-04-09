@@ -40,9 +40,13 @@ export async function extractUrl(url: string): Promise<ExtractionResult> {
                 hint: 'The server took too long to respond. Try again later.',
             });
         }
-        throw new IngestError('NETWORK', `Network error fetching ${url}: ${err instanceof Error ? err.message : err}`, {
-            retryable: true,
-        });
+        throw new IngestError(
+            'NETWORK',
+            `Network error fetching ${url}: ${err instanceof Error ? err.message : err}`,
+            {
+                retryable: true,
+            },
+        );
     }
 
     if (!res.ok) throw errorFromStatus(res.status, url);
@@ -51,9 +55,13 @@ export async function extractUrl(url: string): Promise<ExtractionResult> {
 
     /** Detect JS-rendered pages with no server-side content. */
     if (detectJsRendered(html)) {
-        throw new IngestError('JS_RENDERED', `Page is JS-rendered with no server-side content: ${url}`, {
-            hint: 'This page requires JavaScript to render. Try saving it as HTML from your browser and using `lumen add ./page.html`.',
-        });
+        throw new IngestError(
+            'JS_RENDERED',
+            `Page is JS-rendered with no server-side content: ${url}`,
+            {
+                hint: 'This page requires JavaScript to render. Try saving it as HTML from your browser and using `lumen add ./page.html`.',
+            },
+        );
     }
 
     /** Detect paywalled content. */

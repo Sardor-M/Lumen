@@ -84,7 +84,9 @@ export function registerGraph(program: Command): void {
                 const depth = parseInt(opts.depth) || 2;
                 const result = neighborhood(concept, depth);
 
-                log.heading(`Neighborhood of "${concept}" (${depth} hops, ${result.nodes.size} nodes)`);
+                log.heading(
+                    `Neighborhood of "${concept}" (${depth} hops, ${result.nodes.size} nodes)`,
+                );
                 for (const slug of result.nodes) {
                     if (slug === concept) continue;
                     const name = getConcept(slug)?.name ?? slug;

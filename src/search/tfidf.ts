@@ -32,7 +32,9 @@ type TfIdfIndex = {
 
 /** Build or return the cached TF-IDF index from all chunks. */
 export function getIndex(): TfIdfIndex {
-    const currentCount = (getDb().prepare('SELECT COUNT(*) as c FROM chunks').get() as { c: number }).c;
+    const currentCount = (
+        getDb().prepare('SELECT COUNT(*) as c FROM chunks').get() as { c: number }
+    ).c;
 
     /** Rebuild if chunk count changed. */
     if (cachedIndex && cachedDocCount === currentCount) return cachedIndex;
