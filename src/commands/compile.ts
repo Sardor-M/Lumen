@@ -1,1 +1,89 @@
-// wikic compile — process uncompiled chunks into wiki concepts via LLM
+import type { Command } from 'commander';
+import { getDb } from '../store/database.js';
+import { listSources } from '../store/sources.js';
+import { compileSource } from '../llm/compiler.js';
+import { generateReport } from '../graph/report.js';
+import { loadConfig } from '../utils/config.js';
+import { audit } from '../utils/logger.js';
+import * as log from '../utils/logger.js';
+
+export function registerCompile(program: Command): void {
+    program
+        .command('compile')
+        .description('Compile unprocessed sources into concepts and edges via LLM')
+        .option('--all', 'Recompile all sources, not just unprocessed')
+        .option('--report', 'Generate GRAPH_REPORT.md after compilation', true)
+        .action(async (opts: { all?: boolean; report?: boolean }) => {
+            try {
+                const config = loadConfig();
+                getDb();
+
+                if (!config.llm.api_key) {
+                    log.error('No API key configured. Set ANTHROPIC_API_KEY or run: lumen config --api-key <key>');
+                    process.exitCode = 1;
+                    return;
+                }
+
+                const sources = opts.all ? listSources() : listSources({ compiled: false });
+
+                if (sources.length === 0) {
+                    log.info('No uncompiled sources. Use --all to recompile everything.');
+                    return;
+                }
+
+                log.heading(`Compiling ${sources.length} source${sources.length === 1 ? '' : 's'}`);
+
+                let totalConcepts = 0;
+                let totalEdges = 0;
+                let totalTokens = 0;
+
+                for (let i = 0; i < sources.length; i++) {
+                    const src = sources[i];
+                    log.info(`[${i + 1}/${sources.length}] ${src.title}`);
+
+                    try {
+                        const result = await compileSource(src.id, src.title, config);
+
+                        totalConcepts += result.concepts_created.length + result.concepts_updated.length;
+                        totalEdges += result.edges_created;
+                        totalTokens += result.tokens_used;
+
+                        log.success(
+                            `  +${result.concepts_created.length} concepts, ~${result.concepts_updated.length} updated, ${result.edges_created} edges`,
+                        );
+                    } catch (err) {
+                        log.error(`  Failed: ${err instanceof Error ? err.message : err}`);
+                    }
+                }
+
+                console.log();
+                log.heading('Compilation Summary');
+                log.table({
+                    Sources: sources.length,
+                    Concepts: totalConcepts,
+                    Edges: totalEdges,
+                    'Est. tokens': totalTokens,
+                });
+
+                /** Generate graph report. */
+                if (opts.report !== false) {
+                    try {
+                        const reportPath = generateReport();
+                        log.success(`Graph report: ${reportPath}`);
+                    } catch (err) {
+                        log.warn(`Report generation failed: ${err instanceof Error ? err.message : err}`);
+                    }
+                }
+
+                audit('compile:batch', {
+                    sources: sources.length,
+                    concepts: totalConcepts,
+                    edges: totalEdges,
+                    tokens: totalTokens,
+                });
+            } catch (err) {
+                log.error(err instanceof Error ? err.message : String(err));
+                process.exitCode = 1;
+            }
+        });
+}

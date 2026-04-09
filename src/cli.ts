@@ -4,6 +4,8 @@ import { registerInit } from './commands/init.js';
 import { registerAdd } from './commands/add.js';
 import { registerSearch } from './commands/search.js';
 import { registerStatus } from './commands/status.js';
+import { registerCompile } from './commands/compile.js';
+import { registerGraph } from './commands/graph.js';
 
 const program = new Command();
 
@@ -17,6 +19,8 @@ program
 registerInit(program);
 registerAdd(program);
 registerSearch(program);
+registerCompile(program);
+registerGraph(program);
 registerStatus(program);
 
 program.parse();
