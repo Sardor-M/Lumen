@@ -2,9 +2,10 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { getDb } from '../store/database.js';
-import { countSources, countSourcesByType, listSources } from '../store/sources.js';
-import { countChunks, totalTokens } from '../store/chunks.js';
-import { countConcepts, getConcept, listConcepts, getConceptSources } from '../store/concepts.js';
+import { countSources, countSourcesByType, getSource } from '../store/sources.js';
+import { insertSource } from '../store/sources.js';
+import { countChunks, totalTokens, insertChunks } from '../store/chunks.js';
+import { countConcepts, getConcept, getConceptSources } from '../store/concepts.js';
 import { countEdges, getEdgesFrom, getEdgesTo } from '../store/edges.js';
 import { searchBm25 } from '../search/bm25.js';
 import { searchTfIdf } from '../search/tfidf.js';
@@ -13,7 +14,13 @@ import { selectByBudget } from '../search/budget.js';
 import { shortestPath, neighborhood, godNodes } from '../graph/engine.js';
 import { pagerank } from '../graph/pagerank.js';
 import { detectCommunities } from '../graph/cluster.js';
-import { getSource } from '../store/sources.js';
+import { chat } from '../llm/client.js';
+import { QA_SYSTEM, qaUserPrompt } from '../llm/prompts/qa.js';
+import { loadConfig } from '../utils/config.js';
+import { ingestInput } from '../ingest/file.js';
+import { sourceExists } from '../store/dedup.js';
+import { shortId, contentHash } from '../utils/hash.js';
+import { chunk } from '../chunker/index.js';
 
 export async function startMcpServer(): Promise<void> {
     getDb();
@@ -282,6 +289,200 @@ export async function startMcpServer(): Promise<void> {
                 members: c.members.map((s) => getConcept(s)?.name ?? s),
             }));
             return { content: [{ type: 'text' as const, text: JSON.stringify(results, null, 2) }] };
+        },
+    );
+
+    /** ─── Query (Q&A) ─── */
+
+    server.tool(
+        'query',
+        'Ask a question and get a synthesized answer from the knowledge base using search + LLM.',
+        {
+            question: z.string().describe('The question to answer'),
+            limit: z.number().optional().default(10).describe('Max chunks to retrieve'),
+            budget: z.number().optional().default(4000).describe('Token budget for context'),
+        },
+        async ({ question, limit, budget }) => {
+            const config = loadConfig();
+
+            const bm25 = searchBm25(question, limit * 2);
+            const tfidf = searchTfIdf(question, limit * 2);
+
+            const fused = fuseRrf(
+                [
+                    {
+                        name: 'bm25',
+                        weight: 0.5,
+                        results: bm25.map((r) => ({
+                            chunk_id: r.chunk_id,
+                            source_id: r.source_id,
+                            score: r.score,
+                        })),
+                    },
+                    {
+                        name: 'tfidf',
+                        weight: 0.5,
+                        results: tfidf.map((r) => ({
+                            chunk_id: r.chunk_id,
+                            source_id: r.source_id,
+                            score: r.score,
+                        })),
+                    },
+                ],
+                60,
+            );
+
+            const selected = selectByBudget(
+                fused.slice(0, limit).map((r) => ({
+                    chunk_id: r.chunk_id,
+                    source_id: r.source_id,
+                    score: r.rrf_score,
+                })),
+                budget,
+            );
+
+            if (selected.length === 0) {
+                return {
+                    content: [
+                        {
+                            type: 'text' as const,
+                            text: 'No relevant content found in the knowledge base.',
+                        },
+                    ],
+                };
+            }
+
+            const chunks = selected.map((c) => ({
+                source_title: getSource(c.source_id)?.title ?? c.source_id,
+                heading: null as string | null,
+                content: c.content,
+                score: c.score,
+            }));
+
+            const answer = await chat(
+                config,
+                [{ role: 'user', content: qaUserPrompt(question, chunks) }],
+                { system: QA_SYSTEM, maxTokens: 2048 },
+            );
+
+            return { content: [{ type: 'text' as const, text: answer }] };
+        },
+    );
+
+    /** ─── Community Detail ─── */
+
+    server.tool(
+        'community',
+        'Get concepts in a specific community by its ID.',
+        {
+            id: z.number().describe('Community ID (from the communities tool)'),
+        },
+        async ({ id }) => {
+            const communities = detectCommunities();
+            const community = communities.find((c) => c.id === id);
+
+            if (!community) {
+                return {
+                    content: [
+                        {
+                            type: 'text' as const,
+                            text: `Community ${id} not found. Use the "communities" tool to list available IDs.`,
+                        },
+                    ],
+                };
+            }
+
+            const members = community.members.map((slug) => {
+                const concept = getConcept(slug);
+                return {
+                    slug,
+                    name: concept?.name ?? slug,
+                    summary: concept?.summary ?? null,
+                    mention_count: concept?.mention_count ?? 0,
+                };
+            });
+
+            return {
+                content: [
+                    {
+                        type: 'text' as const,
+                        text: JSON.stringify({ id, size: community.size, members }, null, 2),
+                    },
+                ],
+            };
+        },
+    );
+
+    /** ─── Add Source ─── */
+
+    server.tool(
+        'add',
+        'Ingest a new source into the knowledge base. Accepts URLs, file paths, arXiv IDs, or YouTube links.',
+        {
+            input: z.string().describe('URL, file path, arXiv ID, or YouTube link to ingest'),
+        },
+        async ({ input }) => {
+            const config = loadConfig();
+            const db = getDb();
+
+            try {
+                const result = await ingestInput(input);
+
+                const existingId = sourceExists(db, result.content);
+                if (existingId) {
+                    return {
+                        content: [
+                            {
+                                type: 'text' as const,
+                                text: `Skipped (duplicate): "${result.title}" already exists.`,
+                            },
+                        ],
+                    };
+                }
+
+                const id = shortId(result.content);
+                const hash = contentHash(result.content);
+                const wordCount = result.content.split(/\s+/).length;
+
+                insertSource({
+                    id,
+                    title: result.title,
+                    url: result.url,
+                    content: result.content,
+                    content_hash: hash,
+                    source_type: result.source_type,
+                    added_at: new Date().toISOString(),
+                    compiled_at: null,
+                    word_count: wordCount,
+                    language: result.language,
+                    metadata: result.metadata ? JSON.stringify(result.metadata) : null,
+                });
+
+                const chunks = chunk(result.content, id, {
+                    minTokens: config.chunker.min_chunk_tokens,
+                    maxTokens: config.chunker.max_chunk_tokens,
+                });
+                insertChunks(chunks);
+
+                return {
+                    content: [
+                        {
+                            type: 'text' as const,
+                            text: `Added "${result.title}" (${chunks.length} chunks, ${wordCount} words)`,
+                        },
+                    ],
+                };
+            } catch (err) {
+                return {
+                    content: [
+                        {
+                            type: 'text' as const,
+                            text: `Failed to ingest: ${err instanceof Error ? err.message : String(err)}`,
+                        },
+                    ],
+                    isError: true,
+                };
+            }
         },
     );
 

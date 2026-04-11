@@ -1,0 +1,8 @@
+{
+    "mcpServers": {
+        "lumen": {
+            "command": "lumen",
+            "args": ["--mcp"]
+        }
+    }
+}

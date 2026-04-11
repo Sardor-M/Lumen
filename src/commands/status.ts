@@ -15,10 +15,15 @@ export function registerStatus(program: Command): void {
         .description(
             'Show wiki statistics — sources, chunks, concepts, graph density (local, no LLM)',
         )
-        .action(() => {
+        .option('--json', 'Output stats as JSON')
+        .action((opts: { json?: boolean }) => {
             try {
                 if (!isInitialized()) {
-                    log.warn('Lumen is not initialized. Run `lumen init` first.');
+                    if (opts.json) {
+                        console.log(JSON.stringify({ initialized: false }));
+                    } else {
+                        log.warn('Lumen is not initialized. Run `lumen init` first.');
+                    }
                     return;
                 }
 
@@ -30,6 +35,13 @@ export function registerStatus(program: Command): void {
                 const concepts = countConcepts();
                 const edges = countEdges();
                 const byType = countSourcesByType();
+
+                if (opts.json) {
+                    console.log(
+                        JSON.stringify({ sources, chunks, tokens, concepts, edges, byType }),
+                    );
+                    return;
+                }
 
                 const dbSize = formatBytes(statSync(getDbPath()).size);
 

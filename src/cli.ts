@@ -6,6 +6,7 @@ import { registerSearch } from './commands/search.js';
 import { registerStatus } from './commands/status.js';
 import { registerCompile } from './commands/compile.js';
 import { registerGraph } from './commands/graph.js';
+import { registerInstall } from './commands/install.js';
 
 /** MCP mode: if --mcp flag is passed, start the MCP server instead of CLI. */
 if (process.argv.includes('--mcp')) {
@@ -26,6 +27,7 @@ if (process.argv.includes('--mcp')) {
     registerCompile(program);
     registerGraph(program);
     registerStatus(program);
+    registerInstall(program);
 
     program.parse();
 }
