@@ -60,6 +60,10 @@ pnpm --filter @lumen/web build    # web build
 - **Zod for input validation** — all form inputs and API route bodies go through a Zod schema in `src/lib/schemas.ts`.
 - **Better Auth session check** via `auth.api.getSession({ headers: await headers() })` in server components. Redirect unauthenticated users from protected routes.
 - **No `.js` extension in relative imports** — Next.js handles it.
+- **Inline `export function`** for all UI components. Never use bottom `export { ... }` blocks. Write `export function Button(...)` not `function Button(...) ... export { Button }`.
+- **`export const` for CVA variants** — write `export const buttonVariants = cva(...)` inline.
+- **shadcn base-ui uses `render` prop, NOT `asChild`**. To render a component as a Link: `<SidebarMenuButton render={<Link href="..." />}>`. Do NOT use `asChild` — it leaks to DOM elements.
+- **`cn()` from `@/lib/utils`** for all className merging.
 
 ## File Patterns
 
@@ -78,6 +82,7 @@ pnpm --filter @lumen/web build    # web build
 - API routes → `src/app/api/<route>/route.ts` (named `GET`/`POST`/etc. exports)
 - Server utilities → `src/lib/*.ts` (named exports, no `'use client'`)
 - Client components → `src/components/*.tsx` (named exports, `'use client'` when needed)
+- UI primitives → `src/components/ui/*.tsx` (shadcn, inline `export function`, `'use client'` when needed)
 - Shared schemas → `src/lib/schemas.ts` (Zod)
 
 ## Environment gotcha — iCloud Desktop sync
