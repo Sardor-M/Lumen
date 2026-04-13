@@ -1,5 +1,6 @@
 import { getDb } from './database.js';
 import type { Edge, RelationType } from '../types/index.js';
+import { invalidateProfile } from '../profile/invalidate.js';
 
 export function upsertEdge(edge: Edge): void {
     getDb()
@@ -11,6 +12,7 @@ export function upsertEdge(edge: Edge): void {
          source_id = COALESCE(@source_id, edges.source_id)`,
         )
         .run(edge);
+    invalidateProfile();
 }
 
 export function getEdgesFrom(slug: string): Edge[] {

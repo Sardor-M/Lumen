@@ -519,6 +519,27 @@ export async function startMcpServer(): Promise<void> {
         },
     );
 
+    /** ─── Profile ─── */
+
+    server.tool(
+        'profile',
+        'Fast cached snapshot of your knowledge base — top concepts, recent activity, learned preferences. No args needed.',
+        {},
+        async () => {
+            const start = Date.now();
+            const { getProfile } = await import('../profile/cache.js');
+            const profile = getProfile();
+            logQuery({
+                tool_name: 'profile',
+                query_text: null,
+                result_count: null,
+                latency_ms: Date.now() - start,
+                session_id: sessionId,
+            });
+            return { content: [{ type: 'text' as const, text: JSON.stringify(profile, null, 2) }] };
+        },
+    );
+
     /** ─── Start server ─── */
 
     const transport = new StdioServerTransport();

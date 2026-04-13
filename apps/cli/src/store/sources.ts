@@ -1,5 +1,6 @@
 import { getDb } from './database.js';
 import type { Source, SourceType } from '../types/index.js';
+import { invalidateProfile } from '../profile/invalidate.js';
 
 export function insertSource(source: Source): void {
     getDb()
@@ -8,6 +9,7 @@ export function insertSource(source: Source): void {
        VALUES (@id, @title, @url, @content, @content_hash, @source_type, @added_at, @compiled_at, @word_count, @language, @metadata)`,
         )
         .run(source);
+    invalidateProfile();
 }
 
 export function getSource(id: string): Source | null {
@@ -50,10 +52,12 @@ export function markCompiled(id: string): void {
     getDb()
         .prepare('UPDATE sources SET compiled_at = ? WHERE id = ?')
         .run(new Date().toISOString(), id);
+    invalidateProfile();
 }
 
 export function deleteSource(id: string): void {
     getDb().prepare('DELETE FROM sources WHERE id = ?').run(id);
+    invalidateProfile();
 }
 
 export function countSources(): number {

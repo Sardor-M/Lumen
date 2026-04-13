@@ -1,5 +1,6 @@
 import { getDb } from './database.js';
 import type { Concept, SourceConcept } from '../types/index.js';
+import { invalidateProfile } from '../profile/invalidate.js';
 
 export function upsertConcept(concept: Concept): void {
     getDb()
@@ -14,6 +15,7 @@ export function upsertConcept(concept: Concept): void {
          mention_count = concepts.mention_count + 1`,
         )
         .run(concept);
+    invalidateProfile();
 }
 
 export function getConcept(slug: string): Concept | null {

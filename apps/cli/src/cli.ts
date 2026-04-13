@@ -7,6 +7,9 @@ import { registerStatus } from './commands/status.js';
 import { registerCompile } from './commands/compile.js';
 import { registerGraph } from './commands/graph.js';
 import { registerInstall } from './commands/install.js';
+import { registerAsk } from './commands/ask.js';
+import { registerProfile } from './commands/profile.js';
+import { registerMemory } from './commands/memory.js';
 
 /** MCP mode: if --mcp flag is passed, start the MCP server instead of CLI. */
 if (process.argv.includes('--mcp')) {
@@ -24,9 +27,12 @@ if (process.argv.includes('--mcp')) {
     registerInit(program);
     registerAdd(program);
     registerSearch(program);
+    registerAsk(program);
     registerCompile(program);
     registerGraph(program);
     registerStatus(program);
+    registerProfile(program);
+    registerMemory(program);
     registerInstall(program);
 
     program.parse();

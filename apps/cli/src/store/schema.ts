@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 
-const CURRENT_VERSION = 2;
+const CURRENT_VERSION = 3;
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS sources (
@@ -96,6 +96,13 @@ const SCHEMA = `
 
   CREATE INDEX IF NOT EXISTS idx_query_log_tool ON query_log(tool_name);
   CREATE INDEX IF NOT EXISTS idx_query_log_ts ON query_log(timestamp);
+
+  CREATE TABLE IF NOT EXISTS profile_snapshot (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    data TEXT NOT NULL,
+    generated_at TEXT NOT NULL,
+    valid INTEGER NOT NULL DEFAULT 1
+  );
 `;
 
 export function createSchema(db: Database.Database): void {

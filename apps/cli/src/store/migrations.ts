@@ -19,6 +19,16 @@ const migrations: Record<number, Migration> = {
             CREATE INDEX IF NOT EXISTS idx_query_log_ts ON query_log(timestamp);
         `);
     },
+    3: (db) => {
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS profile_snapshot (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                data TEXT NOT NULL,
+                generated_at TEXT NOT NULL,
+                valid INTEGER NOT NULL DEFAULT 1
+            );
+        `);
+    },
 };
 
 export function runMigrations(db: Database.Database, fromVersion: number): void {
