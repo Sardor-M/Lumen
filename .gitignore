@@ -1,9 +1,17 @@
-node_modules/
+node_modules
+node_modules.trash-*
 dist/
+.next/
+.turbo/
 .env
+.env.local
 *.tgz
 
 # Lumen user data (local knowledge base, not part of the project)
 .lumen/
 
-/docs   
+# Next.js
+next-env.d.ts
+*.tsbuildinfo
+
+/docs

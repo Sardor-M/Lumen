@@ -1,0 +1,12 @@
+{
+    "name": "@lumen/extension",
+    "version": "0.1.0",
+    "private": true,
+    "description": "Lumen browser extension — one-click ingest for the current tab",
+    "scripts": {
+        "build": "echo 'TODO: extension build' && exit 0",
+        "dev": "echo 'TODO: extension dev'",
+        "lint": "echo 'TODO: extension lint'",
+        "clean": "rm -rf dist"
+    }
+}
