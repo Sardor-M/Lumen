@@ -21,9 +21,12 @@ import { ingestInput } from '../ingest/file.js';
 import { sourceExists } from '../store/dedup.js';
 import { shortId, contentHash } from '../utils/hash.js';
 import { chunk } from '../chunker/index.js';
+import { logQuery } from '../store/query-log.js';
 
 export async function startMcpServer(): Promise<void> {
     getDb();
+
+    const sessionId = `mcp-${Date.now()}`;
 
     const server = new McpServer({
         name: 'lumen',
@@ -44,6 +47,7 @@ export async function startMcpServer(): Promise<void> {
                 .describe('Token budget — if set, returns chunks that fit within this token limit'),
         },
         async ({ query, limit, budget }) => {
+            const start = Date.now();
             const bm25 = searchBm25(query, limit * 2);
             const tfidf = searchTfIdf(query, limit * 2);
 
@@ -82,6 +86,13 @@ export async function startMcpServer(): Promise<void> {
                     })),
                     budget,
                 );
+                logQuery({
+                    tool_name: 'search',
+                    query_text: query,
+                    result_count: selected.length,
+                    latency_ms: Date.now() - start,
+                    session_id: sessionId,
+                });
                 return {
                     content: [
                         {
@@ -117,6 +128,13 @@ export async function startMcpServer(): Promise<void> {
                 };
             });
 
+            logQuery({
+                tool_name: 'search',
+                query_text: query,
+                result_count: results.length,
+                latency_ms: Date.now() - start,
+                session_id: sessionId,
+            });
             return { content: [{ type: 'text' as const, text: JSON.stringify(results, null, 2) }] };
         },
     );
@@ -303,6 +321,7 @@ export async function startMcpServer(): Promise<void> {
             budget: z.number().optional().default(4000).describe('Token budget for context'),
         },
         async ({ question, limit, budget }) => {
+            const start = Date.now();
             const config = loadConfig();
 
             const bm25 = searchBm25(question, limit * 2);
@@ -342,6 +361,13 @@ export async function startMcpServer(): Promise<void> {
             );
 
             if (selected.length === 0) {
+                logQuery({
+                    tool_name: 'query',
+                    query_text: question,
+                    result_count: 0,
+                    latency_ms: Date.now() - start,
+                    session_id: sessionId,
+                });
                 return {
                     content: [
                         {
@@ -365,6 +391,13 @@ export async function startMcpServer(): Promise<void> {
                 { system: QA_SYSTEM, maxTokens: 2048 },
             );
 
+            logQuery({
+                tool_name: 'query',
+                query_text: question,
+                result_count: selected.length,
+                latency_ms: Date.now() - start,
+                session_id: sessionId,
+            });
             return { content: [{ type: 'text' as const, text: answer }] };
         },
     );

@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 
-const CURRENT_VERSION = 1;
+const CURRENT_VERSION = 2;
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS sources (
@@ -83,6 +83,19 @@ const SCHEMA = `
     relevance REAL NOT NULL DEFAULT 0.0,
     PRIMARY KEY (source_id, concept_slug)
   );
+
+  CREATE TABLE IF NOT EXISTS query_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tool_name TEXT NOT NULL,
+    query_text TEXT,
+    result_count INTEGER,
+    latency_ms INTEGER,
+    session_id TEXT,
+    timestamp TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_query_log_tool ON query_log(tool_name);
+  CREATE INDEX IF NOT EXISTS idx_query_log_ts ON query_log(timestamp);
 `;
 
 export function createSchema(db: Database.Database): void {
