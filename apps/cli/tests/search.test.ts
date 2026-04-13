@@ -47,7 +47,8 @@ function seedData() {
         {
             id: shortId('chunk:1:attention'),
             source_id: sources[0].id,
-            content: 'The attention mechanism computes a weighted sum of values based on query-key similarity scores.',
+            content:
+                'The attention mechanism computes a weighted sum of values based on query-key similarity scores.',
             content_hash: contentHash('chunk1'),
             chunk_type: 'paragraph',
             heading: 'Attention',
@@ -57,7 +58,8 @@ function seedData() {
         {
             id: shortId('chunk:2:training'),
             source_id: sources[0].id,
-            content: 'Training uses Adam optimizer with warmup and linear decay learning rate schedule.',
+            content:
+                'Training uses Adam optimizer with warmup and linear decay learning rate schedule.',
             content_hash: contentHash('chunk2'),
             chunk_type: 'paragraph',
             heading: 'Training',
@@ -67,7 +69,8 @@ function seedData() {
         {
             id: shortId('chunk:3:applications'),
             source_id: sources[0].id,
-            content: 'Applications include machine translation, text summarization, and question answering systems.',
+            content:
+                'Applications include machine translation, text summarization, and question answering systems.',
             content_hash: contentHash('chunk3'),
             chunk_type: 'paragraph',
             heading: 'Applications',
@@ -138,8 +141,12 @@ describe('TF-IDF', () => {
         const results = searchTfIdf('attention weighted sum query key');
 
         /** The attention chunk should rank higher than the training chunk. */
-        const attentionIdx = results.findIndex((r) => r.chunk_id.includes(shortId('chunk:1:attention').slice(0, 6)));
-        const trainingIdx = results.findIndex((r) => r.chunk_id.includes(shortId('chunk:2:training').slice(0, 6)));
+        const attentionIdx = results.findIndex((r) =>
+            r.chunk_id.includes(shortId('chunk:1:attention').slice(0, 6)),
+        );
+        const trainingIdx = results.findIndex((r) =>
+            r.chunk_id.includes(shortId('chunk:2:training').slice(0, 6)),
+        );
 
         if (attentionIdx !== -1 && trainingIdx !== -1) {
             expect(attentionIdx).toBeLessThan(trainingIdx);

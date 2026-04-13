@@ -13,7 +13,8 @@ describe('chunkMarkdown', () => {
     });
 
     it('splits by headings and preserves heading context', () => {
-        const md = '# Title\n\nIntro paragraph.\n\n## Section A\n\nContent A.\n\n## Section B\n\nContent B.';
+        const md =
+            '# Title\n\nIntro paragraph.\n\n## Section A\n\nContent A.\n\n## Section B\n\nContent B.';
         const chunks = chunkMarkdown(md, 0, 5000);
 
         const headings = chunks.filter((c) => c.chunk_type === 'heading');
@@ -118,7 +119,8 @@ describe('chunkHtml', () => {
 
 describe('chunkPlain', () => {
     it('splits by paragraph boundaries', () => {
-        const text = 'First paragraph with content.\n\nSecond paragraph with content.\n\nThird paragraph with content.';
+        const text =
+            'First paragraph with content.\n\nSecond paragraph with content.\n\nThird paragraph with content.';
         const chunks = chunkPlain(text, 0, 5000);
         expect(chunks.length).toBeGreaterThanOrEqual(1);
         expect(chunks.every((c) => c.chunk_type === 'paragraph')).toBe(true);

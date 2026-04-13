@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { detectSourceType } from '../src/ingest/file.js';
-import { IngestError, errorFromStatus, detectJsRendered, detectPaywall } from '../src/ingest/errors.js';
+import {
+    IngestError,
+    errorFromStatus,
+    detectJsRendered,
+    detectPaywall,
+} from '../src/ingest/errors.js';
 
 describe('detectSourceType', () => {
     it('detects YouTube URLs', () => {
@@ -62,12 +67,14 @@ describe('errorFromStatus', () => {
 
 describe('detectJsRendered', () => {
     it('detects React/Next.js shells', () => {
-        const html = '<html><body><div id="__next"></div>' + '<script>'.repeat(10) + '</body></html>';
+        const html =
+            '<html><body><div id="__next"></div>' + '<script>'.repeat(10) + '</body></html>';
         expect(detectJsRendered(html)).toBe(true);
     });
 
     it('does not flag content-rich pages', () => {
-        const html = '<html><body><h1>Article</h1><p>' + 'Content. '.repeat(100) + '</p></body></html>';
+        const html =
+            '<html><body><h1>Article</h1><p>' + 'Content. '.repeat(100) + '</p></body></html>';
         expect(detectJsRendered(html)).toBe(false);
     });
 });
@@ -80,7 +87,9 @@ describe('detectPaywall', () => {
     });
 
     it('does not flag normal content', () => {
-        expect(detectPaywall('<p>This is a normal article about machine learning.</p>')).toBe(false);
+        expect(detectPaywall('<p>This is a normal article about machine learning.</p>')).toBe(
+            false,
+        );
     });
 });
 

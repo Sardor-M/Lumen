@@ -62,7 +62,9 @@ describe('wikilink', () => {
     });
 
     it('creates wikilink with display text', () => {
-        expect(wikilink('transformers', 'Transformer Models')).toBe('[[transformers|Transformer Models]]');
+        expect(wikilink('transformers', 'Transformer Models')).toBe(
+            '[[transformers|Transformer Models]]',
+        );
     });
 });
 

@@ -31,7 +31,13 @@ import {
     getConceptSources,
     getSourceConcepts,
 } from '../src/store/concepts.js';
-import { upsertEdge, getEdgesFrom, getEdgesTo, getNeighbors, countEdges } from '../src/store/edges.js';
+import {
+    upsertEdge,
+    getEdgesFrom,
+    getEdgesTo,
+    getNeighbors,
+    countEdges,
+} from '../src/store/edges.js';
 import { sourceExists, chunkExists } from '../src/store/dedup.js';
 import { contentHash, shortId } from '../src/utils/hash.js';
 import type { Source, Chunk, Concept, Edge } from '../src/types/index.js';
@@ -299,7 +305,13 @@ describe('edges', () => {
             mention_count: 1,
         });
 
-        const edge: Edge = { from_slug: 'a', to_slug: 'b', relation: 'related', weight: 0.8, source_id: null };
+        const edge: Edge = {
+            from_slug: 'a',
+            to_slug: 'b',
+            relation: 'related',
+            weight: 0.8,
+            source_id: null,
+        };
         upsertEdge(edge);
 
         expect(countEdges()).toBe(1);
@@ -330,8 +342,20 @@ describe('edges', () => {
             mention_count: 1,
         });
 
-        upsertEdge({ from_slug: 'x', to_slug: 'y', relation: 'supports', weight: 0.5, source_id: null });
-        upsertEdge({ from_slug: 'x', to_slug: 'y', relation: 'supports', weight: 0.9, source_id: null });
+        upsertEdge({
+            from_slug: 'x',
+            to_slug: 'y',
+            relation: 'supports',
+            weight: 0.5,
+            source_id: null,
+        });
+        upsertEdge({
+            from_slug: 'x',
+            to_slug: 'y',
+            relation: 'supports',
+            weight: 0.9,
+            source_id: null,
+        });
 
         const edges = getEdgesFrom('x');
         expect(edges).toHaveLength(1);
