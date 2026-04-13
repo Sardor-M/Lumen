@@ -14,4 +14,4 @@ dist/
 next-env.d.ts
 *.tsbuildinfo
 
-/docs
+/docs/docs_analysis_in_depth
