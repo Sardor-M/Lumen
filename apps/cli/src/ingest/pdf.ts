@@ -40,7 +40,7 @@ export async function extractPdf(source: string): Promise<ExtractionResult> {
 
     let data: Awaited<ReturnType<typeof pdf>>;
     try {
-        data = await pdf(buffer);
+        data = await withSilencedPdfWarnings(() => pdf(buffer));
     } catch (err) {
         throw new IngestError('MALFORMED', `Failed to parse PDF: ${source}`, {
             hint: `The PDF may be corrupted, encrypted, or scanned (image-only). Error: ${err instanceof Error ? err.message : err}`,
@@ -72,4 +72,31 @@ export async function extractPdf(source: string): Promise<ExtractionResult> {
 function filenameFromPath(path: string): string {
     const name = path.split('/').pop() || path;
     return name.replace(/\.pdf$/i, '').replace(/[-_]/g, ' ');
+}
+
+/**
+ *  The pdfjs build bundled with pdf-parse writes parser diagnostics
+ *  ("Warning: TT: undefined function: N", "Warning: Empty FlateDecode stream",
+ *  "Warning: Could not find a preferred cmap table", …) directly via
+ *  `console.log` with no verbosity knob reachable from the public API. These
+ *  are harmless for text extraction but spam the CLI. Swallow only those
+ *  prefixed lines during parsing; unrelated log calls still pass through.
+ */
+async function withSilencedPdfWarnings<T>(fn: () => Promise<T>): Promise<T> {
+    const originalLog = console.log;
+    console.log = (...args: unknown[]) => {
+        const first = args[0];
+        if (
+            typeof first === 'string' &&
+            (first.startsWith('Warning:') || first.startsWith('Info:'))
+        ) {
+            return;
+        }
+        originalLog(...args);
+    };
+    try {
+        return await fn();
+    } finally {
+        console.log = originalLog;
+    }
 }
