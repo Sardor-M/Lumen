@@ -131,6 +131,20 @@ export type LumenConfig = {
     };
 };
 
+export type ConnectorType = 'rss' | 'folder' | 'arxiv' | 'github' | 'youtube-channel';
+
+export type Connector = {
+    id: string;
+    type: ConnectorType;
+    name: string;
+    config: string;
+    state: string;
+    interval_seconds: number;
+    last_run_at: string | null;
+    last_error: string | null;
+    created_at: string;
+};
+
 export type IngestErrorCode =
     | 'PAYWALL'
     | 'JS_RENDERED'

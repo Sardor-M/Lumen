@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 
-const CURRENT_VERSION = 3;
+const CURRENT_VERSION = 4;
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS sources (
@@ -103,6 +103,21 @@ const SCHEMA = `
     generated_at TEXT NOT NULL,
     valid INTEGER NOT NULL DEFAULT 1
   );
+
+  CREATE TABLE IF NOT EXISTS connectors (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL,
+    name TEXT NOT NULL,
+    config TEXT NOT NULL DEFAULT '{}',
+    state TEXT NOT NULL DEFAULT '{}',
+    interval_seconds INTEGER NOT NULL DEFAULT 3600,
+    last_run_at TEXT,
+    last_error TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_connectors_type ON connectors(type);
+  CREATE INDEX IF NOT EXISTS idx_connectors_last_run ON connectors(last_run_at);
 `;
 
 export function createSchema(db: Database.Database): void {

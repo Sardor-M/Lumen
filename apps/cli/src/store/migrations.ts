@@ -29,6 +29,23 @@ const migrations: Record<number, Migration> = {
             );
         `);
     },
+    4: (db) => {
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS connectors (
+                id TEXT PRIMARY KEY,
+                type TEXT NOT NULL,
+                name TEXT NOT NULL,
+                config TEXT NOT NULL DEFAULT '{}',
+                state TEXT NOT NULL DEFAULT '{}',
+                interval_seconds INTEGER NOT NULL DEFAULT 3600,
+                last_run_at TEXT,
+                last_error TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_connectors_type ON connectors(type);
+            CREATE INDEX IF NOT EXISTS idx_connectors_last_run ON connectors(last_run_at);
+        `);
+    },
 };
 
 export function runMigrations(db: Database.Database, fromVersion: number): void {

@@ -35,6 +35,14 @@ export function getAuditLogPath(): string {
     return join(getDataDir(), 'audit.log');
 }
 
+export function getDaemonPidPath(): string {
+    return join(getDataDir(), 'daemon.pid');
+}
+
+export function getDaemonLogPath(): string {
+    return join(getDataDir(), 'daemon.log');
+}
+
 export function getOutputDir(): string {
     const dir = join(getDataDir(), 'output');
     ensureDir(dir);
