@@ -13,6 +13,7 @@ import { registerInstall } from './commands/install.js';
 import { registerAsk } from './commands/ask.js';
 import { registerProfile } from './commands/profile.js';
 import { registerMemory } from './commands/memory.js';
+import { registerServe } from './commands/serve.js';
 
 /** Load .env before any command runs — the globally-installed bin won't pick up
  *  a project .env automatically. Precedence: $PWD/.env (dev override) over
@@ -54,6 +55,7 @@ if (process.argv.includes('--mcp')) {
     registerStatus(program);
     registerProfile(program);
     registerMemory(program);
+    registerServe(program);
     registerInstall(program);
 
     program.parse();

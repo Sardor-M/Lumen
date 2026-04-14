@@ -6,6 +6,14 @@
     "bin": {
         "lumen": "./dist/cli.js"
     },
+    "exports": {
+        "./store/*": "./src/store/*.ts",
+        "./search/*": "./src/search/*.ts",
+        "./graph/*": "./src/graph/*.ts",
+        "./profile/*": "./src/profile/*.ts",
+        "./types": "./src/types/index.ts",
+        "./utils/paths": "./src/utils/paths.ts"
+    },
     "scripts": {
         "dev": "tsx src/cli.ts",
         "build": "tsup src/cli.ts --format esm --dts --clean",

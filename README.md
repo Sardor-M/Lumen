@@ -126,12 +126,13 @@ Lumen is a **knowledge compiler**, not an LLM wrapper. The LLM is one component 
 | `graph <subcommand>`   | Overview, pagerank, path, neighbors, report, export | No        |
 | `profile`              | Corpus profile — sources, density, frequent queries | No        |
 | `memory export/import` | Portable knowledge base backup (JSONL or SQL)       | No        |
+| `serve`                | Start the web UI against your local knowledge base  | No        |
 | `status`               | Data directory and DB statistics                    | No        |
 | `install <platform>`   | Set up AI assistant integration (claude, codex)     | No        |
 
 Graph subcommands: `lumen graph` (overview), `lumen graph pagerank`, `lumen graph path <a> <b>`, `lumen graph neighbors <concept> -d 2`, `lumen graph report` (writes `GRAPH_REPORT.md`), `lumen graph export -f json`.
 
-Planned: `config`, `delta`, `digest`, `export`, `lint`, `benchmark`, `serve` — stubs exist, not yet wired.
+Planned: `config`, `delta`, `digest`, `export`, `lint`, `benchmark` — stubs exist, not yet wired.
 
 ## Features
 
@@ -182,11 +183,26 @@ The repo itself ships 9 Claude Code skills for contributors: `code-review`, `deb
 
 ### Web UI
 
-`apps/web` is a Next.js 15 app with Better Auth, Zod validation, shadcn/ui components, and a dashboard. Login, signup, and auth API routes are wired. Full dashboard integration with the local Lumen DB is in progress.
+`apps/web` is a Next.js 15 app (Better Auth, Zod, shadcn/ui) that reads directly from your local `~/.lumen/lumen.db` through the CLI's store layer — no duplicate query code, no separate server.
+
+Pages wired to live data: overview (sources / concepts / edges / density / pending), hybrid search with per-signal score breakdown, concept browser with mention counts, concept detail (neighborhood, outgoing/incoming edges), sources list, and graph dashboard (god nodes, communities, top concepts). API routes at `/api/{status,search,graph,concepts,concepts/[slug],sources,profile}`.
+
+Launch from any directory — `serve` forwards `LUMEN_DIR` so the web app reads the same SQLite file the CLI does:
+
+```bash
+lumen serve                          # dev mode, http://localhost:3000
+lumen serve --port 4000 --mode prod  # after running `pnpm build` in apps/web
+```
+
+Or run Next.js directly:
 
 ```bash
 pnpm --filter @lumen/web dev
 ```
+
+### Profile latency
+
+`lumen profile` is cached in SQLite and invalidated on writes. A test in `apps/cli/tests/profile.test.ts` asserts a cached median read under 50ms on a 50-source / 100-concept / 200-edge corpus.
 
 ## Storage
 

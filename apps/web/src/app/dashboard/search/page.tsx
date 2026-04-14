@@ -8,10 +8,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 
 type SearchResult = {
-    source: string;
-    heading: string | null;
-    content: string;
-    score: number;
+    chunk_id: string;
+    source_id: string;
+    source_title: string | null;
+    snippet: string | null;
+    rrf_score: number;
+    signals: Record<string, number>;
 };
 
 export default function SearchPage() {
@@ -75,24 +77,26 @@ export default function SearchPage() {
                     <p className="text-muted-foreground text-sm">
                         {results.length} result{results.length !== 1 ? 's' : ''}
                     </p>
-                    {results.map((r, i) => (
-                        <Card key={i}>
+                    {results.map((r) => (
+                        <Card key={r.chunk_id}>
                             <CardHeader className="pb-2">
                                 <div className="flex items-center justify-between">
                                     <CardTitle className="text-sm font-medium">
-                                        {r.source}
+                                        {r.source_title ?? r.source_id}
                                     </CardTitle>
                                     <Badge variant="secondary" className="font-mono text-xs">
-                                        {r.score.toFixed(3)}
+                                        {r.rrf_score.toFixed(3)}
                                     </Badge>
                                 </div>
-                                {r.heading && (
-                                    <p className="text-muted-foreground text-xs">{r.heading}</p>
-                                )}
+                                <p className="text-muted-foreground font-mono text-xs">
+                                    {Object.entries(r.signals)
+                                        .map(([k, v]) => `${k}:${v.toFixed(2)}`)
+                                        .join(' · ')}
+                                </p>
                             </CardHeader>
                             <CardContent>
                                 <p className="text-muted-foreground line-clamp-3 text-sm">
-                                    {r.content}
+                                    {r.snippet ?? ''}
                                 </p>
                             </CardContent>
                         </Card>

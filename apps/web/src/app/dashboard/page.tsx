@@ -1,14 +1,22 @@
-import { FileText, Layers, Boxes, GitFork, Database, BarChart3 } from 'lucide-react';
+import { FileText, Boxes, GitFork, BarChart3, Activity } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { profile, status } from '@/lib/lumen';
 
 export default function DashboardPage() {
+    const s = status();
+    const p = s.initialized ? profile() : null;
+    const density = p?.static.graph_density ?? 0;
+    const pending = p?.dynamic.pending_compilation ?? 0;
+
     return (
         <div className="space-y-8">
             <div>
                 <h1 className="text-2xl font-bold tracking-tight">Overview</h1>
                 <p className="text-muted-foreground mt-1 text-sm">
-                    Your knowledge graph at a glance.
+                    {s.initialized
+                        ? 'Your knowledge graph at a glance.'
+                        : 'Workspace not initialized — run `lumen init` in your terminal to get started.'}
                 </p>
             </div>
 
@@ -16,18 +24,32 @@ export default function DashboardPage() {
                 <StatCard
                     icon={FileText}
                     label="Sources"
-                    value="—"
+                    value={s.initialized ? String(s.sources) : '—'}
                     description="Articles ingested"
                 />
-                <StatCard icon={Layers} label="Chunks" value="—" description="Text segments" />
-                <StatCard icon={Boxes} label="Concepts" value="—" description="Extracted nodes" />
-                <StatCard icon={GitFork} label="Edges" value="—" description="Relationships" />
-                <StatCard icon={Database} label="Tokens" value="—" description="Total indexed" />
+                <StatCard
+                    icon={Boxes}
+                    label="Concepts"
+                    value={s.initialized ? String(s.concepts) : '—'}
+                    description="Extracted nodes"
+                />
+                <StatCard
+                    icon={GitFork}
+                    label="Edges"
+                    value={s.initialized ? String(s.edges) : '—'}
+                    description="Relationships"
+                />
                 <StatCard
                     icon={BarChart3}
                     label="Graph Density"
-                    value="—"
-                    description="Connectivity"
+                    value={s.initialized ? density.toFixed(4) : '—'}
+                    description="2·E / (N·(N−1))"
+                />
+                <StatCard
+                    icon={Activity}
+                    label="Pending"
+                    value={s.initialized ? String(pending) : '—'}
+                    description="Sources awaiting compile"
                 />
             </div>
 
