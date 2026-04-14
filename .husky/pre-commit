@@ -1,1 +1,22 @@
-npx lint-staged
+#!/usr/bin/env sh
+# Pre-commit checks — fail fast on formatting, secrets, and type/lint errors.
+
+# 1. Format staged files via lint-staged (prettier on .ts/.tsx/.json/.md/.yml).
+npx lint-staged || exit 1
+
+# 2. Block obvious API keys / secrets in staged additions.
+#    Scans only lines added in this commit (excludes lockfiles).
+SECRETS=$(git diff --cached --diff-filter=AM -U0 -- ':!*.lock' ':!pnpm-lock.yaml' ':!package-lock.json' \
+    | grep -E '^\+[^+]' \
+    | grep -EiI 'sk-(ant|or|proj)-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----' \
+    || true)
+if [ -n "$SECRETS" ]; then
+    echo "✗ Possible secret detected in staged changes:"
+    echo "$SECRETS" | head -5
+    echo ""
+    echo "  Keep keys in ~/.lumen/.env (never commit). Bypass with --no-verify only if this is a false positive."
+    exit 1
+fi
+
+# 3. Type-check + ESLint across all workspaces (CLAUDE.md pre-commit policy).
+pnpm lint || exit 1

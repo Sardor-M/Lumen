@@ -1,11 +1,13 @@
 node_modules
 node_modules.trash-*
 dist/
+
 .next/
 .turbo/
 .env
 .env.local
 *.tgz
+
 
 # Lumen user data (local knowledge base, not part of the project)
 .lumen/
