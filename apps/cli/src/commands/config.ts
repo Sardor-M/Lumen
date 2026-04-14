@@ -1,1 +1,3 @@
-// wikic config — view/set API key, model, provider, data directory
+/**
+ * wikic config — view/set API key, model, provider, data directory.
+ */

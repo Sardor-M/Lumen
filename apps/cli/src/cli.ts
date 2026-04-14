@@ -17,9 +17,11 @@ import { registerServe } from './commands/serve.js';
 import { registerWatch } from './commands/watch.js';
 import { registerDaemon } from './commands/daemon.js';
 
-/** Load .env before any command runs — the globally-installed bin won't pick up
- *  a project .env automatically. Precedence: $PWD/.env (dev override) over
- *  $LUMEN_DIR/.env (persistent user config). */
+/**
+ * Load .env before any command runs — the globally-installed bin won't pick up
+ * a project .env automatically. Precedence: $PWD/.env (dev override) over
+ * $LUMEN_DIR/.env (persistent user config).
+ */
 function loadEnvFiles(): void {
     const lumenDir = process.env.LUMEN_DIR || join(homedir(), '.lumen');
     const candidates = [join(lumenDir, '.env'), join(process.cwd(), '.env')];

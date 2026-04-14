@@ -1,1 +1,3 @@
-// File-level change detection — mtime comparison + content hash verification
+/**
+ * File-level change detection — mtime comparison + content hash verification.
+ */

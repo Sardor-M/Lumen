@@ -1,7 +1,6 @@
 import { listConcepts } from '../store/concepts.js';
 import { listEdges } from '../store/edges.js';
 import { detectCommunities } from './cluster.js';
-import type { Concept, Edge } from '../types/index.js';
 
 type GraphJson = {
     nodes: { slug: string; name: string; mention_count: number; community: number }[];

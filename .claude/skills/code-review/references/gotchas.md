@@ -1,5 +1,23 @@
 # Gotchas — Common Mistakes in Lumen
 
+## Comment style
+
+- **All comments must be JSDoc block comments**, never `//` line comments (project rule in CLAUDE.md).
+- **Canonical multi-line format**:
+
+    ```ts
+    /**
+     * BFS shortest path between two concepts.
+     * Returns null if no path exists.
+     */
+    ```
+
+    Opens with `/**` on its own line, each content line starts with `*`, closes with ` */` on its own line.
+
+- **Single-line JSDoc** (`/** Short description. */`) is also acceptable for one-liners. Prefer the multi-line form whenever the comment spans two or more sentences or wraps across lines.
+- Do NOT use `/* non-JSDoc block */` comments — always `/** ... */`.
+- Do NOT use `// inline` or `// end-of-line` comments. Convert to JSDoc above the line, or delete if the comment just restates the code.
+
 ## SQLite / better-sqlite3
 
 - **FTS5 query parsing**: Hyphens in search terms (e.g., `self-attention`) are misinterpreted as column filters. Always quote each term: `"self-attention"` not `self-attention`.

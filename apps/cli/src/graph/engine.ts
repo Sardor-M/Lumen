@@ -1,7 +1,7 @@
 import { getDb } from '../store/database.js';
 import { getEdgesFrom, getEdgesTo, getNeighbors } from '../store/edges.js';
-import { getConcept, listConcepts } from '../store/concepts.js';
-import type { Edge, Concept } from '../types/index.js';
+import { listConcepts } from '../store/concepts.js';
+import type { Edge } from '../types/index.js';
 
 type PathResult = {
     path: string[];

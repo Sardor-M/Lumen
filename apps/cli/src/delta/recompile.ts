@@ -1,1 +1,3 @@
-// Smart recompilation — only update concepts affected by changed chunks
+/**
+ * Smart recompilation — only update concepts affected by changed chunks.
+ */

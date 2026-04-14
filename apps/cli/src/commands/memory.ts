@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import type { Command } from 'commander';
 import { getDb } from '../store/database.js';
-import { getDbPath, isInitialized } from '../utils/paths.js';
+import { isInitialized } from '../utils/paths.js';
 import * as log from '../utils/logger.js';
 
 type ExportFormat = 'jsonl' | 'sql';

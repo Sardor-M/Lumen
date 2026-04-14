@@ -1,1 +1,3 @@
-// Benchmark report — aggregate results, generate markdown table, print to terminal
+/**
+ * Benchmark report — aggregate results, generate markdown table, print to terminal.
+ */
