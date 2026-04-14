@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { Command } from 'commander';
 import * as log from '../utils/logger.js';
+import { installDaemonUnit, uninstallDaemonUnit } from '../daemon/install.js';
 
 /** Content for the PreToolUse hook script. */
 function hookScript(): string {
@@ -106,8 +107,9 @@ function mcpConfig(): { mcpServers: Record<string, unknown> } {
 export function registerInstall(program: Command): void {
     program
         .command('install <platform>')
-        .description('Set up Lumen integration for a platform (claude, codex)')
-        .action((platform: string) => {
+        .description('Set up Lumen integration for a platform (claude, codex, daemon)')
+        .option('--remove', 'Uninstall the integration instead of installing')
+        .action((platform: string, opts: { remove?: boolean }) => {
             try {
                 const cwd = process.cwd();
 
@@ -118,8 +120,14 @@ export function registerInstall(program: Command): void {
                     case 'codex':
                         installCodex(cwd);
                         break;
+                    case 'daemon':
+                        if (opts.remove) runDaemonUninstall();
+                        else runDaemonInstall();
+                        break;
                     default:
-                        log.error(`Unknown platform: "${platform}". Supported: claude, codex`);
+                        log.error(
+                            `Unknown platform: "${platform}". Supported: claude, codex, daemon`,
+                        );
                         process.exitCode = 1;
                 }
             } catch (err) {
@@ -127,6 +135,25 @@ export function registerInstall(program: Command): void {
                 process.exitCode = 1;
             }
         });
+}
+
+function runDaemonInstall(): void {
+    const result = installDaemonUnit();
+    const label = result.platform === 'macos' ? 'launchd plist' : 'systemd user unit';
+    log.success(`Installed ${label}`);
+    log.dim(`  Path       ${result.unit_path}`);
+    log.dim(`  Status     ${result.already_installed ? 'replaced' : 'new'}`);
+    log.dim(`  ${result.follow_up}`);
+}
+
+function runDaemonUninstall(): void {
+    const result = uninstallDaemonUnit();
+    const label = result.platform === 'macos' ? 'launchd plist' : 'systemd user unit';
+    if (result.removed) {
+        log.success(`Removed ${label}: ${result.unit_path}`);
+    } else {
+        log.warn(`No ${label} found at ${result.unit_path}`);
+    }
 }
 
 function installClaude(cwd: string): void {
