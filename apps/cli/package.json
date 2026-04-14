@@ -35,7 +35,7 @@
         "@types/pdf-parse": "^1.1.4",
         "@typescript-eslint/eslint-plugin": "^8.58.0",
         "@typescript-eslint/parser": "^8.58.0",
-        "eslint": "^10.2.0",
+        "eslint": "^9.17.0",
         "eslint-config-prettier": "^10.1.8",
         "tsup": "^8.4.0",
         "tsx": "^4.19.3",

@@ -20,7 +20,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             className={cn('font-sans', geist.variable, geistMono.variable)}
         >
             <body className="bg-background text-foreground min-h-screen antialiased">
-                <TooltipProvider delayDuration={0}>{children}</TooltipProvider>
+                <TooltipProvider delay={0}>{children}</TooltipProvider>
             </body>
         </html>
     );

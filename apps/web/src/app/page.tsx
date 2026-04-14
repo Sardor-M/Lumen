@@ -16,11 +16,11 @@ export default function Home() {
             </p>
 
             <div className="mt-8 flex gap-3">
-                <Button asChild size="lg">
-                    <Link href="/dashboard">Open dashboard</Link>
+                <Button size="lg" render={<Link href="/dashboard" />}>
+                    Open dashboard
                 </Button>
-                <Button variant="outline" asChild size="lg">
-                    <Link href="/login">Sign in</Link>
+                <Button variant="outline" size="lg" render={<Link href="/login" />}>
+                    Sign in
                 </Button>
             </div>
 
