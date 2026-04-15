@@ -33,6 +33,10 @@ import { addSource, type AddInput, type AddResult } from './lib/add.js';
 import { ask as askImpl, type AskOptions, type AskResult } from './lib/ask.js';
 import { compile as compileImpl, type CompileOptions, type CompileResult } from './lib/compile.js';
 import { createWatchApi, type WatchApi } from './lib/watch.js';
+import { createSourcesApi, type SourcesApi, type SourcesListOptions } from './lib/sources.js';
+import { createConceptsApi, type ConceptsApi, type ConceptsListOptions } from './lib/concepts.js';
+import { createChunksApi, type ChunksApi, type ChunksListOptions } from './lib/chunks.js';
+import { withHook, type LumenCallHook } from './lib/hook.js';
 import { getProfile } from './profile/cache.js';
 import type { LumenProfile } from './profile/builder.js';
 import { LumenError, LumenNotInitializedError } from './lib/errors.js';
@@ -42,6 +46,16 @@ export type CreateLumenOptions = {
     dataDir?: string;
     /** Create the workspace directory and database if it doesn't exist yet. */
     autoInit?: boolean;
+    /**
+     * Observability hook invoked twice per public method call:
+     * `phase: 'start'` before the call runs, then `phase: 'success'` or
+     * `phase: 'error'` once it settles. Use the shared `call_id` to
+     * correlate the two. Hook errors are swallowed; the library never
+     * awaits your handler.
+     *
+     * Zero cost when omitted — `createLumen` skips instrumentation entirely.
+     */
+    onCall?: LumenCallHook;
 };
 
 export type Lumen = {
@@ -62,6 +76,12 @@ export type Lumen = {
     graph: GraphApi;
     /** Connector management + manual pulls. */
     watch: WatchApi;
+    /** Source row reads — get, list (with filters), count. */
+    sources: SourcesApi;
+    /** Concept reads — `get(slug)` returns a hydrated `ConceptDetail` (edges + sources). */
+    concepts: ConceptsApi;
+    /** Chunk reads — useful to resolve `ask()` citations into full text. */
+    chunks: ChunksApi;
     /** Absolute path of the active workspace. */
     dataDir(): string;
     /** Close the underlying SQLite handle. Safe to call multiple times. */
@@ -88,112 +108,175 @@ export function createLumen(options: CreateLumenOptions = {}): Lumen {
 
     const graph = createGraphApi();
     const watch = createWatchApi();
+    const sources = createSourcesApi();
+    const concepts = createConceptsApi();
+    const chunks = createChunksApi();
+
+    /**
+     * Local helper that threads the configured `onCall` hook through every
+     * public method. When `onCall` is undefined `withHook` returns the
+     * original function untouched, keeping the zero-overhead contract.
+     */
+    const wrap = <Args extends unknown[], R>(
+        name: string,
+        fn: (...a: Args) => R,
+    ): ((...a: Args) => R) => withHook(name, fn, options.onCall);
 
     return Object.freeze({
-        async add(input: AddInput): Promise<AddResult> {
+        add: wrap('add', async (input: AddInput): Promise<AddResult> => {
             ensureOpen();
             return addSource(input);
-        },
+        }),
 
-        search(opts: SearchOptions): LibrarySearchResult[] {
+        search: wrap('search', (opts: SearchOptions): LibrarySearchResult[] => {
             ensureOpen();
             return searchImpl(opts);
-        },
+        }),
 
-        async ask(opts: AskOptions): Promise<AskResult> {
+        ask: wrap('ask', async (opts: AskOptions): Promise<AskResult> => {
             ensureOpen();
             return askImpl(opts);
-        },
+        }),
 
-        async compile(opts?: CompileOptions): Promise<CompileResult> {
+        compile: wrap('compile', async (opts?: CompileOptions): Promise<CompileResult> => {
             ensureOpen();
             return compileImpl(opts);
-        },
+        }),
 
-        status(): LumenStatus {
+        status: wrap('status', (): LumenStatus => {
             ensureOpen();
             return getStatus();
-        },
+        }),
 
-        profile(opts?: { refresh?: boolean }): LumenProfile {
+        profile: wrap('profile', (opts?: { refresh?: boolean }): LumenProfile => {
             ensureOpen();
             /** `getProfile(true)` already bypasses + rewrites the cache. */
             return getProfile(opts?.refresh === true);
-        },
+        }),
 
         watch: Object.freeze({
-            add(opts: Parameters<WatchApi['add']>[0]) {
+            add: wrap('watch.add', (opts: Parameters<WatchApi['add']>[0]) => {
                 ensureOpen();
                 return watch.add(opts);
-            },
-            list(opts?: Parameters<WatchApi['list']>[0]) {
+            }),
+            list: wrap('watch.list', (opts?: Parameters<WatchApi['list']>[0]) => {
                 ensureOpen();
                 return watch.list(opts);
-            },
-            get(id: string) {
+            }),
+            get: wrap('watch.get', (id: string) => {
                 ensureOpen();
                 return watch.get(id);
-            },
-            remove(id: string) {
+            }),
+            remove: wrap('watch.remove', (id: string) => {
                 ensureOpen();
                 return watch.remove(id);
-            },
-            pull(id: string) {
+            }),
+            pull: wrap('watch.pull', (id: string) => {
                 ensureOpen();
                 return watch.pull(id);
-            },
-            run() {
+            }),
+            run: wrap('watch.run', () => {
                 ensureOpen();
                 return watch.run();
-            },
-            runDue() {
+            }),
+            runDue: wrap('watch.runDue', () => {
                 ensureOpen();
                 return watch.runDue();
-            },
-            handlerTypes() {
-                return watch.handlerTypes();
-            },
+            }),
+            handlerTypes: wrap('watch.handlerTypes', () => watch.handlerTypes()),
+        }),
+
+        sources: Object.freeze({
+            get: wrap('sources.get', (id: string) => {
+                ensureOpen();
+                return sources.get(id);
+            }),
+            list: wrap('sources.list', (opts?: SourcesListOptions) => {
+                ensureOpen();
+                return sources.list(opts);
+            }),
+            count: wrap('sources.count', () => {
+                ensureOpen();
+                return sources.count();
+            }),
+            countByType: wrap('sources.countByType', () => {
+                ensureOpen();
+                return sources.countByType();
+            }),
+        }),
+
+        concepts: Object.freeze({
+            get: wrap('concepts.get', (slug: string) => {
+                ensureOpen();
+                return concepts.get(slug);
+            }),
+            list: wrap('concepts.list', (opts?: ConceptsListOptions) => {
+                ensureOpen();
+                return concepts.list(opts);
+            }),
+            count: wrap('concepts.count', () => {
+                ensureOpen();
+                return concepts.count();
+            }),
+        }),
+
+        chunks: Object.freeze({
+            get: wrap('chunks.get', (id: string) => {
+                ensureOpen();
+                return chunks.get(id);
+            }),
+            list: wrap('chunks.list', (opts: ChunksListOptions) => {
+                ensureOpen();
+                return chunks.list(opts);
+            }),
+            count: wrap('chunks.count', () => {
+                ensureOpen();
+                return chunks.count();
+            }),
         }),
 
         graph: Object.freeze({
-            godNodes(limit?: number) {
+            godNodes: wrap('graph.godNodes', (limit?: number) => {
                 ensureOpen();
                 return graph.godNodes(limit);
-            },
-            pagerank(opts?: Parameters<GraphApi['pagerank']>[0]) {
+            }),
+            pagerank: wrap('graph.pagerank', (opts?: Parameters<GraphApi['pagerank']>[0]) => {
                 ensureOpen();
                 return graph.pagerank(opts);
-            },
-            neighbors(slug: string, depth?: number) {
+            }),
+            neighbors: wrap('graph.neighbors', (slug: string, depth?: number) => {
                 ensureOpen();
                 return graph.neighbors(slug, depth);
-            },
-            path(from: string, to: string, maxDepth?: number) {
+            }),
+            path: wrap('graph.path', (from: string, to: string, maxDepth?: number) => {
                 ensureOpen();
                 return graph.path(from, to, maxDepth);
-            },
-            communities(maxIterations?: number) {
+            }),
+            communities: wrap('graph.communities', (maxIterations?: number) => {
                 ensureOpen();
                 return graph.communities(maxIterations);
-            },
-            components() {
+            }),
+            components: wrap('graph.components', () => {
                 ensureOpen();
                 return graph.components();
-            },
-            toJson() {
+            }),
+            toJson: wrap('graph.toJson', () => {
                 ensureOpen();
                 return graph.toJson();
-            },
-            toDot() {
+            }),
+            toDot: wrap('graph.toDot', () => {
                 ensureOpen();
                 return graph.toDot();
-            },
-            report() {
+            }),
+            report: wrap('graph.report', () => {
                 ensureOpen();
                 return graph.report();
-            },
+            }),
         }),
 
+        /** Unhooked — `dataDir()` and `close()` are lifecycle accessors, not
+         *  logical calls. Instrumenting them would inflate traces with
+         *  housekeeping events that no agent wants to see. */
         dataDir(): string {
             return getDataDir();
         },
@@ -228,11 +311,26 @@ export type { SearchOptions, LibrarySearchResult } from './lib/search.js';
 export type { LumenStatus } from './lib/status.js';
 export type { GraphApi } from './lib/graph.js';
 export type { AddInput, AddResult } from './lib/add.js';
-export type { AskOptions, AskResult, AskSource } from './lib/ask.js';
+export type { AskOptions, AskResult, AskSource, Citation, Verdict } from './lib/ask.js';
 export type { CompileOptions, CompileResult, PerSourceOutcome } from './lib/compile.js';
 export type { WatchApi, WatchAddOptions } from './lib/watch.js';
+export type { SourcesApi, SourcesListOptions } from './lib/sources.js';
+export type { ConceptsApi, ConceptsListOptions, ConceptDetail, EdgeRef } from './lib/concepts.js';
+export type { ChunksApi, ChunksListOptions } from './lib/chunks.js';
+export type { LumenCallEvent, LumenCallHook } from './lib/hook.js';
 export type { LumenProfile } from './profile/builder.js';
-export type { SourceType, IngestErrorCode, Connector, ConnectorType } from './types/index.js';
+export type {
+    SourceType,
+    IngestErrorCode,
+    Connector,
+    ConnectorType,
+    Source,
+    Chunk,
+    ChunkType,
+    Concept,
+    Edge,
+    RelationType,
+} from './types/index.js';
 export type { PullSummary } from './connectors/index.js';
 
 /** Paths helpers — useful when consumers want to know where things live. */
