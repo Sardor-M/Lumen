@@ -96,7 +96,7 @@ const RAW_TOOL_DEFINITIONS: ToolDefinition[] = [
     {
         name: 'ask',
         description:
-            'Retrieval-augmented Q&A. Searches the knowledge base, budgets context, and synthesizes an answer via the configured LLM. Requires an API key.',
+            'Retrieval-augmented Q&A. Searches the knowledge base, budgets context, and synthesizes a citable answer via the configured LLM. Returns `{ answer, verdict, found, citations[], sources[] }` — `answer` contains inline `[N]` markers tied to entries in `citations`; `verdict` is one of `answered | partial | uncertain | no_evidence`. Use `verdict === "no_evidence"` or `found === false` to detect when the knowledge base lacks relevant content. Requires an API key.',
         parameters: {
             type: 'object',
             properties: {
