@@ -9,6 +9,8 @@
     "exports": {
         ".": "./src/index.ts",
         "./tools": "./src/tools.ts",
+        "./openai": "./src/adapters/openai.ts",
+        "./ai-sdk": "./src/adapters/ai-sdk.ts",
         "./store/*": "./src/store/*.ts",
         "./search/*": "./src/search/*.ts",
         "./graph/*": "./src/graph/*.ts",
