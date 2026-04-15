@@ -7,6 +7,8 @@
         "lumen": "./dist/cli.js"
     },
     "exports": {
+        ".": "./src/index.ts",
+        "./tools": "./src/tools.ts",
         "./store/*": "./src/store/*.ts",
         "./search/*": "./src/search/*.ts",
         "./graph/*": "./src/graph/*.ts",
