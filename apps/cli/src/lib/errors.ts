@@ -20,13 +20,12 @@ export class LumenError extends Error {
     readonly hint?: string;
 
     constructor(code: LumenErrorCode, message: string, opts?: { hint?: string; cause?: unknown }) {
-        super(message);
+        /** ES2022 `Error` supports `{ cause }` natively — target is es2022
+         *  per tsconfig so this compiles directly without a cast shim. */
+        super(message, opts?.cause !== undefined ? { cause: opts.cause } : undefined);
         this.name = 'LumenError';
         this.code = code;
         this.hint = opts?.hint;
-        if (opts?.cause !== undefined) {
-            (this as unknown as { cause: unknown }).cause = opts.cause;
-        }
     }
 }
 

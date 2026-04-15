@@ -1,8 +1,8 @@
 /**
  * Public library entry for Lumen.
  *
- * Usage:
- *     import { createLumen } from 'lumen-kb';
+ * Usage (current package name, will publish as `lumen-kb` after the 6.4 rename):
+ *     import { createLumen } from '@lumen/cli';
  *     const lumen = createLumen({ dataDir: './my-wiki' });
  *     const results = await lumen.search({ query: 'attention', limit: 10 });
  *     lumen.close();
@@ -34,7 +34,6 @@ import { ask as askImpl, type AskOptions, type AskResult } from './lib/ask.js';
 import { compile as compileImpl, type CompileOptions, type CompileResult } from './lib/compile.js';
 import { createWatchApi, type WatchApi } from './lib/watch.js';
 import { getProfile } from './profile/cache.js';
-import { invalidateProfile } from './profile/invalidate.js';
 import type { LumenProfile } from './profile/builder.js';
 import { LumenError, LumenNotInitializedError } from './lib/errors.js';
 
@@ -118,7 +117,7 @@ export function createLumen(options: CreateLumenOptions = {}): Lumen {
 
         profile(opts?: { refresh?: boolean }): LumenProfile {
             ensureOpen();
-            if (opts?.refresh) invalidateProfile();
+            /** `getProfile(true)` already bypasses + rewrites the cache. */
             return getProfile(opts?.refresh === true);
         },
 

@@ -5,8 +5,8 @@
  * that OpenAI, Anthropic, Google, and most aggregators converge on. Adapters
  * (Phase 6.3) wrap these into the exact envelope their host SDK expects.
  *
- *     import { createLumen } from 'lumen-kb';
- *     import { toolDefinitions, handleToolCall } from 'lumen-kb/tools';
+ *     import { createLumen } from '@lumen/cli';
+ *     import { toolDefinitions, handleToolCall } from '@lumen/cli/tools';
  *
  *     const lumen = createLumen({ dataDir: '~/.lumen' });
  *     const tools = toolDefinitions; // pass to openai.chat.completions.create({ tools })
@@ -43,7 +43,7 @@ export type ToolCall = {
     arguments: Record<string, unknown>;
 };
 
-export const toolDefinitions: readonly ToolDefinition[] = Object.freeze([
+const RAW_TOOL_DEFINITIONS: ToolDefinition[] = [
     {
         name: 'add',
         description:
@@ -172,7 +172,7 @@ export const toolDefinitions: readonly ToolDefinition[] = Object.freeze([
     {
         name: 'pagerank',
         description:
-            'Concepts ranked by PageRank importance (iterative power method, damping=0.85).',
+            'Top concepts ranked by PageRank importance (iterative power method, damping=0.85). Use `limit` to cap the number of results returned.',
         parameters: {
             type: 'object',
             properties: {
@@ -250,7 +250,25 @@ export const toolDefinitions: readonly ToolDefinition[] = Object.freeze([
             additionalProperties: false,
         },
     },
-]);
+];
+
+/**
+ * Recursively freeze so consumers can't mutate the schemas at runtime.
+ * A single `Object.freeze(array)` only seals the outer array, leaving
+ * inner `parameters.properties` maps writable — the test for
+ * `Object.isFrozen(toolDefinitions)` would pass while mutations still
+ * leak. Deep freeze matches the frozen-contract this array advertises.
+ */
+function deepFreeze<T>(value: T): T {
+    if (value === null || typeof value !== 'object' || Object.isFrozen(value)) return value;
+    Object.freeze(value);
+    for (const key of Object.keys(value as Record<string, unknown>)) {
+        deepFreeze((value as Record<string, unknown>)[key]);
+    }
+    return value;
+}
+
+export const toolDefinitions: readonly ToolDefinition[] = deepFreeze(RAW_TOOL_DEFINITIONS);
 
 /**
  * Dispatch a tool call against a Lumen instance. The arguments are trusted

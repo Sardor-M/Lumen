@@ -16,6 +16,12 @@ export type LumenStatus = {
     edges: number;
     connectors: number;
     sources_by_type: Record<string, number>;
+    /**
+     * Graph density: `2 * edges / (concepts * (concepts - 1))`.
+     * - `null` when `concepts === 0` (no graph exists).
+     * - `0` when `concepts === 1` (single node — density is undefined,
+     *   reported as 0 rather than null to keep the type numeric for UIs).
+     */
     graph_density: number | null;
 };
 

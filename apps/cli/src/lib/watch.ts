@@ -20,14 +20,6 @@ const DEFAULT_INTERVAL_SECONDS = 3600;
 const MIN_INTERVAL_SECONDS = 60;
 const MAX_INTERVAL_SECONDS = 86400 * 7;
 
-const KNOWN_TYPES: readonly ConnectorType[] = [
-    'rss',
-    'folder',
-    'arxiv',
-    'github',
-    'youtube-channel',
-];
-
 export type WatchAddOptions = {
     type: string;
     target: string;
@@ -71,8 +63,8 @@ export function createWatchApi(): WatchApi {
 
             const handler = getHandler(type);
             if (!handler) {
-                /** validateType already ensured it's in KNOWN_TYPES, so this is
-                 *  a truly unregistered handler (build skew). */
+                /** validateType already checked the registry, so this is a
+                 *  truly unregistered handler (build skew). */
                 throw new LumenError(
                     'UNKNOWN',
                     `Connector type "${type}" has no registered handler`,
@@ -136,10 +128,14 @@ function validateType(raw: string): ConnectorType {
     if (typeof raw !== 'string' || !raw) {
         throw new LumenError('INVALID_ARGUMENT', 'watch.add(): `type` is required');
     }
-    if (!KNOWN_TYPES.includes(raw as ConnectorType)) {
+    /** Call `initConnectors()` before invoking — the registry is the single
+     *  source of truth for which connector types actually have handlers,
+     *  avoiding drift between a hard-coded list here and the real registry. */
+    const registered = listHandlerTypes();
+    if (!registered.includes(raw as ConnectorType)) {
         throw new LumenError(
             'INVALID_ARGUMENT',
-            `Unknown connector type "${raw}". Known: ${KNOWN_TYPES.join(', ')}`,
+            `Unknown connector type "${raw}". Known: ${registered.join(', ') || '(none registered)'}`,
         );
     }
     return raw as ConnectorType;

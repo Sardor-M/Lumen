@@ -11,8 +11,8 @@ export type CompileOptions = {
     all?: boolean;
     /** Restrict compilation to a specific set of source IDs. */
     sourceIds?: string[];
-    /** Also regenerate GRAPH_REPORT.md after compilation. Default false. */
-    generateReport?: boolean;
+    /** Also write GRAPH_REPORT.md after compilation. Default false. */
+    writeReport?: boolean;
 };
 
 export type PerSourceOutcome =
@@ -27,7 +27,7 @@ export type CompileResult = {
     concepts_updated: number;
     edges_created: number;
     tokens_used: number;
-    /** Absolute path of the generated report if `generateReport` was true. */
+    /** Absolute path of the generated report if `writeReport` was true. */
     report_path: string | null;
     outcomes: PerSourceOutcome[];
 };
@@ -56,7 +56,6 @@ export async function compile(opts: CompileOptions = {}): Promise<CompileResult>
     let totalUpdated = 0;
     let totalEdges = 0;
     let totalTokens = 0;
-    let failures = 0;
 
     for (const src of sources) {
         try {
@@ -67,7 +66,6 @@ export async function compile(opts: CompileOptions = {}): Promise<CompileResult>
             totalEdges += result.edges_created;
             totalTokens += result.tokens_used;
         } catch (err) {
-            failures++;
             outcomes.push({
                 source_id: src.id,
                 status: 'failed',
@@ -76,21 +74,26 @@ export async function compile(opts: CompileOptions = {}): Promise<CompileResult>
         }
     }
 
-    if (outcomes.some((o) => o.status === 'compiled')) {
+    /** Derive counts from outcomes so the summary can never drift from
+     *  the per-source detail (and stays correct if `compileSource` ever
+     *  starts returning a non-throwing failure shape). */
+    const compiledCount = outcomes.filter((o) => o.status === 'compiled').length;
+    const failedCount = outcomes.length - compiledCount;
+
+    if (compiledCount > 0) {
         invalidateProfile();
     }
 
     let reportPath: string | null = null;
-    if (opts.generateReport) {
-        /** `generateReport()` returns the written path in the current
-         *  implementation. If it throws we surface the underlying error. */
+    if (opts.writeReport) {
+        /** `generateReport()` returns the written path. Surface any throw. */
         reportPath = generateReport();
     }
 
     return {
         sources_total: sources.length,
-        sources_compiled: sources.length - failures,
-        sources_failed: failures,
+        sources_compiled: compiledCount,
+        sources_failed: failedCount,
         concepts_created: totalCreated,
         concepts_updated: totalUpdated,
         edges_created: totalEdges,

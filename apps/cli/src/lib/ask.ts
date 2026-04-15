@@ -7,6 +7,7 @@ import { chat } from '../llm/client.js';
 import { QA_SYSTEM, qaUserPrompt } from '../llm/prompts/qa.js';
 import { loadConfig } from '../utils/config.js';
 import { logQuery } from '../store/query-log.js';
+import { invalidateProfile } from '../profile/invalidate.js';
 import { LumenError } from './errors.js';
 
 export type AskOptions = {
@@ -139,6 +140,11 @@ export async function ask(opts: AskOptions): Promise<AskResult> {
         latency_ms: Date.now() - started,
         session_id: null,
     });
+
+    /** The profile's `learned.frequent_topics` + `recent_queries` are built
+     *  from `query_log`. Without this invalidation, a fresh ask() never shows
+     *  up in a subsequent `profile()` read until another mutation happens. */
+    invalidateProfile();
 
     return { answer, sources };
 }
