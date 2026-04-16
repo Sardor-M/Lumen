@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { getDbPath } from '../utils/paths.js';
 import { createSchema } from './schema.js';
 import { runMigrations } from './migrations.js';
+import { clearStmtCache } from './prepared.js';
 
 let db: Database.Database | null = null;
 
@@ -32,6 +33,10 @@ export function openDatabase(path: string): Database.Database {
 
 export function closeDb(): void {
     if (db) {
+        /** Drop the prepared-statement cache BEFORE closing — otherwise the
+         *  cached statements point at a finalised sqlite handle and a later
+         *  reopen on the same path could theoretically reuse a stale entry. */
+        clearStmtCache(db);
         db.close();
         db = null;
     }

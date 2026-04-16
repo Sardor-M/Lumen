@@ -2,6 +2,7 @@ import { searchBm25 } from '../search/bm25.js';
 import { searchTfIdf } from '../search/tfidf.js';
 import { fuseRrf } from '../search/fusion.js';
 import { getDb } from '../store/database.js';
+import { getStmt } from '../store/prepared.js';
 import { LumenError } from './errors.js';
 
 export type SearchMode = 'hybrid' | 'bm25' | 'tfidf';
@@ -100,8 +101,10 @@ function resolveHits(hits: Hit[]): LibrarySearchResult[] {
     if (hits.length === 0) return [];
     const db = getDb();
 
-    const chunkStmt = db.prepare('SELECT content, heading FROM chunks WHERE id = ?');
-    const sourceStmt = db.prepare('SELECT title FROM sources WHERE id = ?');
+    /** Cached prepared statements — shared across every `search()` call on
+     *  this DB handle. `closeDb()` drops the cache so reopens are clean. */
+    const chunkStmt = getStmt(db, 'SELECT content, heading FROM chunks WHERE id = ?');
+    const sourceStmt = getStmt(db, 'SELECT title FROM sources WHERE id = ?');
 
     const out: LibrarySearchResult[] = [];
     for (let i = 0; i < hits.length; i++) {
