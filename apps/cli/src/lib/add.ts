@@ -7,7 +7,7 @@ import { sourceExists } from '../store/dedup.js';
 import { shortId, contentHash } from '../utils/hash.js';
 import { audit } from '../utils/logger.js';
 import { loadConfig } from '../utils/config.js';
-import { invalidateProfile } from '../profile/invalidate.js';
+import { invalidateProfile, withBatchedInvalidation } from '../profile/invalidate.js';
 import type { SourceType } from '../types/index.js';
 import { LumenError } from './errors.js';
 
@@ -69,45 +69,48 @@ export async function addSource(input: AddInput): Promise<AddResult> {
     const hash = contentHash(result.content);
     const wordCount = result.content.split(/\s+/).filter(Boolean).length;
 
-    insertSource({
-        id,
-        title: result.title,
-        url: result.url,
-        content: result.content,
-        content_hash: hash,
-        source_type: result.source_type,
-        added_at: new Date().toISOString(),
-        compiled_at: null,
-        word_count: wordCount,
-        language: result.language,
-        metadata: result.metadata ? JSON.stringify(result.metadata) : null,
+    /** Batch coalesces `insertSource`'s internal invalidate with the one we
+     *  fire below → a single cache bust per add(). */
+    return withBatchedInvalidation((): AddResult => {
+        insertSource({
+            id,
+            title: result.title,
+            url: result.url,
+            content: result.content,
+            content_hash: hash,
+            source_type: result.source_type,
+            added_at: new Date().toISOString(),
+            compiled_at: null,
+            word_count: wordCount,
+            language: result.language,
+            metadata: result.metadata ? JSON.stringify(result.metadata) : null,
+        });
+
+        const chunks = chunk(result.content, id, {
+            minTokens: config.chunker.min_chunk_tokens,
+            maxTokens: config.chunker.max_chunk_tokens,
+        });
+        insertChunks(chunks);
+
+        audit('source:add', {
+            id,
+            title: result.title,
+            source_type: result.source_type,
+            chunks: chunks.length,
+            words: wordCount,
+        });
+
+        invalidateProfile();
+
+        return {
+            status: 'added',
+            id,
+            title: result.title,
+            source_type: result.source_type,
+            chunks: chunks.length,
+            words: wordCount,
+        };
     });
-
-    const chunks = chunk(result.content, id, {
-        minTokens: config.chunker.min_chunk_tokens,
-        maxTokens: config.chunker.max_chunk_tokens,
-    });
-    insertChunks(chunks);
-
-    audit('source:add', {
-        id,
-        title: result.title,
-        source_type: result.source_type,
-        chunks: chunks.length,
-        words: wordCount,
-    });
-
-    /** Cached profile is now stale — the next `profile()` read will rebuild. */
-    invalidateProfile();
-
-    return {
-        status: 'added',
-        id,
-        title: result.title,
-        source_type: result.source_type,
-        chunks: chunks.length,
-        words: wordCount,
-    };
 }
 
 function normalize(input: AddInput): string {

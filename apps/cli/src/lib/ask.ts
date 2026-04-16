@@ -93,9 +93,16 @@ type RawCitableResponse = {
  * 5. Validate citations against the alias set — drop hallucinated chunk_ids
  *    silently, downgrade `verdict` to `uncertain` if all citations are dropped.
  *
- * Throws `LumenError('INVALID_ARGUMENT')` on empty question and
- * `LumenError('UNKNOWN')` when no API key is configured. Also throws if the
- * LLM returns malformed JSON the parser can't recover from.
+ * Throws:
+ * - `LumenError('INVALID_ARGUMENT')` on empty question.
+ * - `LumenError('MISSING_API_KEY')` when no API key is configured.
+ * - `LumenError('LLM_ERROR')` when the provider fails (network, 5xx, etc.) —
+ *   the original error is attached as `cause` so callers can inspect it.
+ * - `LumenError('LLM_PARSE_ERROR')` when the model returns text we can't
+ *   parse as the expected JSON shape — usually fixable by retrying.
+ *
+ * Agents should treat `LLM_ERROR` and `LLM_PARSE_ERROR` as retryable and
+ * everything else as non-retryable.
  */
 export async function ask(opts: AskOptions): Promise<AskResult> {
     const question = opts.question?.trim();
@@ -106,7 +113,7 @@ export async function ask(opts: AskOptions): Promise<AskResult> {
     const config = loadConfig();
     if (!config.llm.api_key) {
         throw new LumenError(
-            'UNKNOWN',
+            'MISSING_API_KEY',
             'No LLM API key configured. Set ANTHROPIC_API_KEY or OPENROUTER_API_KEY.',
             {
                 hint: 'Run `lumen config --api-key <key>` or export an env var before calling ask().',
@@ -181,11 +188,31 @@ export async function ask(opts: AskOptions): Promise<AskResult> {
         });
     });
 
-    const raw = await chatJson<RawCitableResponse>(
-        config,
-        [{ role: 'user', content: qaCitableUserPrompt(question, promptChunks) }],
-        { system: QA_CITABLE_SYSTEM, maxTokens },
-    );
+    /** Wrap provider + parse failures in typed errors so agents can branch on
+     *  code without string-matching. The raw error chains through `cause`. */
+    let raw: RawCitableResponse;
+    try {
+        raw = await chatJson<RawCitableResponse>(
+            config,
+            [{ role: 'user', content: qaCitableUserPrompt(question, promptChunks) }],
+            { system: QA_CITABLE_SYSTEM, maxTokens },
+        );
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        const isParseFailure = /not valid JSON/i.test(message);
+        throw new LumenError(
+            isParseFailure ? 'LLM_PARSE_ERROR' : 'LLM_ERROR',
+            isParseFailure
+                ? 'LLM returned a response that could not be parsed as structured JSON.'
+                : `LLM call failed: ${message}`,
+            {
+                cause: err,
+                hint: isParseFailure
+                    ? 'Retry the call — transient formatting errors usually clear on a second attempt.'
+                    : 'Check network, API key validity, and the provider status page.',
+            },
+        );
+    }
 
     const parsed = validateResponse(raw, aliasMap);
 

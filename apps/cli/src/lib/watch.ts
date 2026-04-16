@@ -64,9 +64,10 @@ export function createWatchApi(): WatchApi {
             const handler = getHandler(type);
             if (!handler) {
                 /** validateType already checked the registry, so this is a
-                 *  truly unregistered handler (build skew). */
+                 *  truly unregistered handler — a build-integrity bug, not
+                 *  caller error. */
                 throw new LumenError(
-                    'UNKNOWN',
+                    'INTERNAL',
                     `Connector type "${type}" has no registered handler`,
                 );
             }

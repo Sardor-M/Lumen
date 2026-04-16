@@ -2,7 +2,7 @@ import { listSources, getSource } from '../store/sources.js';
 import { compileSource } from '../llm/compiler.js';
 import { generateReport } from '../graph/report.js';
 import { loadConfig } from '../utils/config.js';
-import { invalidateProfile } from '../profile/invalidate.js';
+import { invalidateProfile, withBatchedInvalidation } from '../profile/invalidate.js';
 import type { CompilationResult } from '../types/index.js';
 import { LumenError } from './errors.js';
 
@@ -41,7 +41,7 @@ export async function compile(opts: CompileOptions = {}): Promise<CompileResult>
     const config = loadConfig();
     if (!config.llm.api_key) {
         throw new LumenError(
-            'UNKNOWN',
+            'MISSING_API_KEY',
             'No LLM API key configured. Set ANTHROPIC_API_KEY or OPENROUTER_API_KEY.',
             {
                 hint: 'Run `lumen config --api-key <key>` or export an env var before calling compile().',
@@ -57,32 +57,37 @@ export async function compile(opts: CompileOptions = {}): Promise<CompileResult>
     let totalEdges = 0;
     let totalTokens = 0;
 
-    for (const src of sources) {
-        try {
-            const result = await compileSource(src.id, src.title, config);
-            outcomes.push({ source_id: src.id, status: 'compiled', result });
-            totalCreated += result.concepts_created.length;
-            totalUpdated += result.concepts_updated.length;
-            totalEdges += result.edges_created;
-            totalTokens += result.tokens_used;
-        } catch (err) {
-            outcomes.push({
-                source_id: src.id,
-                status: 'failed',
-                error: err instanceof Error ? err.message : String(err),
-            });
+    /** Batch the whole compile loop. Each source's LLM pass can upsert many
+     *  concepts + edges + call markCompiled(), all of which individually
+     *  invalidate the profile. Without batching: 2500+ SQL UPDATEs for
+     *  100 sources. With batching: 1. */
+    await withBatchedInvalidation(async () => {
+        for (const src of sources) {
+            try {
+                const result = await compileSource(src.id, src.title, config);
+                outcomes.push({ source_id: src.id, status: 'compiled', result });
+                totalCreated += result.concepts_created.length;
+                totalUpdated += result.concepts_updated.length;
+                totalEdges += result.edges_created;
+                totalTokens += result.tokens_used;
+            } catch (err) {
+                outcomes.push({
+                    source_id: src.id,
+                    status: 'failed',
+                    error: err instanceof Error ? err.message : String(err),
+                });
+            }
         }
-    }
 
-    /** Derive counts from outcomes so the summary can never drift from
-     *  the per-source detail (and stays correct if `compileSource` ever
-     *  starts returning a non-throwing failure shape). */
+        /** Any successful compile already set pendingInvalidation via the
+         *  store-level invalidate calls — explicit fire keeps semantics
+         *  clear when zero sources compiled (no-op there too). */
+        const compiledCount = outcomes.filter((o) => o.status === 'compiled').length;
+        if (compiledCount > 0) invalidateProfile();
+    });
+
     const compiledCount = outcomes.filter((o) => o.status === 'compiled').length;
     const failedCount = outcomes.length - compiledCount;
-
-    if (compiledCount > 0) {
-        invalidateProfile();
-    }
 
     let reportPath: string | null = null;
     if (opts.writeReport) {
