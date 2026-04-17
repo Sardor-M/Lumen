@@ -228,6 +228,9 @@ describe('concepts', () => {
             created_at: now,
             updated_at: now,
             mention_count: 1,
+            enrichment_tier: 3,
+            last_enriched_at: null,
+            enrichment_queued: 0,
         };
 
         upsertConcept(concept);

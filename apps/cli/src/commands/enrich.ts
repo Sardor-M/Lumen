@@ -27,19 +27,17 @@ export function registerEnrich(program: Command): void {
                         )
                         .all() as { enrichment_tier: number; count: number; queued: number }[];
 
-                    log.table(
-                        tiers.map((t) => ({
-                            tier: t.enrichment_tier,
-                            label:
-                                t.enrichment_tier === 1
-                                    ? 'Full'
-                                    : t.enrichment_tier === 2
-                                      ? 'Enriched'
-                                      : 'Stub',
-                            concepts: t.count,
-                            queued: t.queued ?? 0,
-                        })),
-                    );
+                    for (const t of tiers) {
+                        const label =
+                            t.enrichment_tier === 1
+                                ? 'Full'
+                                : t.enrichment_tier === 2
+                                  ? 'Enriched'
+                                  : 'Stub';
+                        log.table({
+                            [`Tier ${t.enrichment_tier} (${label})`]: `${t.count} concepts, ${t.queued ?? 0} queued`,
+                        });
+                    }
                     return;
                 }
 
