@@ -45,8 +45,8 @@ jobs:
                     exit 0
                   fi
 
-                  # --- Cost guard: skip very large diffs ---
-                  MAX_DIFF_LINES=500
+                  # --- Cost guard: skip very large diffs (Sonnet ~$0.10-0.20 per run) ---
+                  MAX_DIFF_LINES=2000
                   if [ "$DIFF_LINES" -gt "$MAX_DIFF_LINES" ]; then
                     echo "::warning::Diff too large ($DIFF_LINES lines > $MAX_DIFF_LINES). Skipping to stay within cost budget."
                     echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -68,8 +68,8 @@ jobs:
                   echo "$CHANGED_FILES"
 
                   : > /tmp/pr_context.txt
-                  MAX_TOTAL_LINES=3000
-                  MAX_FILE_LINES=300
+                  MAX_TOTAL_LINES=8000
+                  MAX_FILE_LINES=600
 
                   append_file() {
                     local path="$1"
@@ -141,7 +141,7 @@ jobs:
                     --repo ${{ github.repository }} \
                     --body "## 🤖 Claude Code Review
 
-                  Skipped — diff is too large for automated review (> 500 lines). Use \`@claude\` in a comment to ask targeted questions about specific files or sections."
+                  Skipped — diff is too large for automated review (> 2000 lines). Use \`@claude\` in a comment to ask targeted questions about specific files or sections."
 
             - name: Review with Claude
               id: review
@@ -151,7 +151,7 @@ jobs:
                   PR_TITLE: ${{ github.event.pull_request.title }}
                   PR_BODY: ${{ github.event.pull_request.body }}
               run: |
-                  PR_BODY_TRIMMED=$(echo "$PR_BODY" | head -c 500)
+                  PR_BODY_TRIMMED=$(echo "$PR_BODY" | head -c 2000)
 
                   jq -n \
                     --rawfile diff /tmp/pr_diff.txt \
@@ -159,12 +159,12 @@ jobs:
                     --arg title "$PR_TITLE" \
                     --arg body "$PR_BODY_TRIMMED" \
                     '{
-                      model: "claude-haiku-4-5-20251001",
-                      max_tokens: 512,
+                      model: "claude-sonnet-4-6",
+                      max_tokens: 2048,
                       messages: [
                         {
                           role: "user",
-                          content: ("You are a concise code reviewer. This is a TypeScript monorepo (Next.js 15 + CLI).\n\nPR Title: " + $title + "\nPR Description: " + $body + "\n\nReview the DIFF below. The FILE CONTEXT section contains full post-change contents of changed files and their directly imported local files — use it to verify signatures, types, and surrounding logic before claiming a bug. Do not flag issues that the context disproves.\n\nFocus ONLY on:\n1. Bugs or logic errors\n2. Security issues\n3. Performance problems\n4. TypeScript type safety issues\n\nSkip style/formatting nitpicks. If the code looks good, say so briefly.\nKeep your review under 250 words. Use markdown.\n\n# Diff\n```\n" + $diff + "\n```\n\n# File Context\n```\n" + $context + "\n```")
+                          content: ("You are a thorough code reviewer for a TypeScript monorepo (Next.js 15 web app + Node.js CLI + SQLite).\n\nPR Title: " + $title + "\nPR Description: " + $body + "\n\nThe FILE CONTEXT section contains full post-change file contents and their direct local imports — use it to verify types, signatures, and surrounding logic before flagging anything. Do not raise issues the context disproves.\n\nReview the diff and produce a structured report covering:\n\n### Summary\nOne paragraph describing what the PR does and your overall verdict.\n\n### Issues\nFor each real issue found, include:\n- **Severity**: `critical` | `major` | `minor`\n- **File + approximate line**\n- **What is wrong and why** (be specific — show the problematic code)\n- **Suggested fix** (concrete code snippet when helpful)\n\nCategories to check:\n1. **Correctness** — logic bugs, wrong conditions, off-by-one, missed edge cases\n2. **Security** — injection, auth bypass, secrets in output, unsafe deserialization\n3. **Type safety** — `any` leaks, unsafe casts, missing null checks at real boundaries\n4. **Performance** — N+1 queries, missing indexes, unbounded allocations, blocking I/O in hot paths\n5. **Error handling** — unhandled rejections, swallowed errors, missing rollback on failure\n6. **API / contract** — breaking changes to exported types, MCP tool schemas, CLI flags\n\n### Nits (optional)\nMinor style or clarity suggestions — keep brief, max 3 bullets.\n\nIf no real issues are found, say so clearly and explain why the code looks correct.\nDo not invent issues. Do not repeat yourself.\n\n# Diff\n```\n" + $diff + "\n```\n\n# File Context\n```\n" + $context + "\n```")
                         }
                       ]
                     }' > /tmp/payload.json
@@ -192,8 +192,9 @@ jobs:
                   CW_TOK=$(echo "$RESPONSE"  | jq -r '.usage.cache_creation_input_tokens // 0')
                   CR_TOK=$(echo "$RESPONSE"  | jq -r '.usage.cache_read_input_tokens // 0')
 
+                  # Sonnet 4.6 pricing: input $3/MTok, output $15/MTok, cache write $3.75/MTok, cache read $0.30/MTok
                   COST=$(awk -v i="$IN_TOK" -v o="$OUT_TOK" -v cw="$CW_TOK" -v cr="$CR_TOK" \
-                    'BEGIN { printf "%.6f", (i*1.0 + o*5.0 + cw*1.25 + cr*0.10) / 1000000 }')
+                    'BEGIN { printf "%.6f", (i*3.0 + o*15.0 + cw*3.75 + cr*0.30) / 1000000 }')
 
                   echo "Tokens: input=$IN_TOK output=$OUT_TOK cache_write=$CW_TOK cache_read=$CR_TOK"
                   echo "Estimated cost: \$$COST USD"
@@ -217,7 +218,7 @@ jobs:
                     cat /tmp/review.txt
                     echo ""
                     echo "---"
-                    echo "*Reviewed by Claude Haiku 4.5 · diff: ${{ steps.diff.outputs.diff_lines }} lines · context: ${{ steps.diff.outputs.context_lines }} lines · tokens: ${{ steps.review.outputs.input_tokens }} in / ${{ steps.review.outputs.output_tokens }} out · cost: \$${{ steps.review.outputs.cost_usd }} · tag \`@claude\` to ask follow-up questions*"
+                    echo "*Reviewed by claude-sonnet-4-6 · diff: ${{ steps.diff.outputs.diff_lines }} lines · context: ${{ steps.diff.outputs.context_lines }} lines · tokens: ${{ steps.review.outputs.input_tokens }} in / ${{ steps.review.outputs.output_tokens }} out · cost: \$${{ steps.review.outputs.cost_usd }} · tag \`@claude\` to ask follow-up questions*"
                   } > /tmp/comment.txt
 
                   gh pr comment ${{ github.event.pull_request.number }} \
