@@ -10,6 +10,11 @@ on:
     pull_request_review:
         types: [submitted]
 
+# Queue @claude requests per issue/PR so rapid comments don't spawn parallel agents.
+concurrency:
+    group: claude-agent-${{ github.event.issue.number || github.event.pull_request.number }}
+    cancel-in-progress: false
+
 jobs:
     claude:
         if: |
@@ -18,6 +23,7 @@ jobs:
             (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
             (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
         runs-on: ubuntu-latest
+        timeout-minutes: 30
         permissions:
             contents: read
             pull-requests: write

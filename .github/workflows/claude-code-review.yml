@@ -4,9 +4,15 @@ on:
     pull_request:
         types: [opened, synchronize]
 
+# Cancel any in-progress review for the same PR when a new push arrives.
+concurrency:
+    group: claude-review-${{ github.event.pull_request.number }}
+    cancel-in-progress: true
+
 jobs:
     review:
         runs-on: ubuntu-latest
+        timeout-minutes: 10
         permissions:
             pull-requests: write
             contents: read
