@@ -28,41 +28,99 @@ fi
 `;
 }
 
-/** Content for the Claude Code skill file. */
+/** Content for the always-on Claude Code skill file. */
 function skillContent(): string {
     return `---
-name: lumen
-description: Search and query your personal knowledge base
+name: lumen-brain
+description: Always-on knowledge brain. Fires on every message to check memory first and capture new knowledge after.
 triggers:
-  - /lumen
+  - every message
+alwaysOn: true
 ---
 
-# Lumen Knowledge Base
+# Lumen Brain Protocol
 
-You have access to a Lumen knowledge base via MCP tools. Use these tools to help the user:
+You have a persistent knowledge brain via Lumen MCP tools.
+Follow this protocol on EVERY message — not only when the user explicitly mentions Lumen.
 
-## Available MCP Tools
+## Step 1 — Brain-first lookup (before answering)
 
-- **search** — Hybrid BM25 + TF-IDF search across all ingested content
-- **query** — Ask a question and get a synthesized answer using search + LLM
-- **status** — Show knowledge base statistics
-- **god_nodes** — Return the most connected concepts (highest connectivity)
-- **concept** — Get details about a specific concept including edges and sources
-- **path** — Find the shortest path between two concepts
-- **neighbors** — Get all concepts within N hops of a given concept
-- **pagerank** — Return concepts ranked by PageRank importance
-- **communities** — List detected concept communities (topic clusters)
-- **community** — Get concepts in a specific community by ID
-- **add** — Ingest a new source (URL, file, arXiv, YouTube)
+On every substantive question or research task:
 
-## Usage
+1. Call \`brain_ops\` with the core topic of the question.
+2. If results exist — use them as grounding context in your answer.
+3. Say "not in your knowledge base yet" only when \`brain_ops\` returns \`found: false\`.
 
-When the user invokes /lumen, determine what they need:
-- For search queries: use the \`search\` tool
-- For questions: use the \`query\` tool
-- For graph exploration: use \`god_nodes\`, \`concept\`, \`path\`, \`neighbors\`, \`communities\`
-- For ingesting new content: use the \`add\` tool
-- For overview: use \`status\`
+Never answer a knowledge question from training alone. Always check first.
+
+Intent shortcuts — call the right tool directly:
+
+| What the user says | Tool |
+|---|---|
+| "who is X" / "what is X" | \`brain_ops\` with intent \`concept\` |
+| "how does X connect to Y" / "path from X to Y" | \`brain_ops\` with intent \`path\`, from + to filled |
+| "what is related to X" / "neighbors of X" | \`brain_ops\` with intent \`neighborhood\` |
+| "what are my main topics" / "top concepts" | \`god_nodes\` then \`communities\` |
+| "add this URL / file / paper" | \`add\` — ingest immediately, no confirmation needed |
+| "remember this" / "capture this" / "save this" | \`capture\` with the user's exact phrasing |
+
+## Step 2 — Passive signal capture (after responding)
+
+After every response where any of the following happened, call \`capture\`:
+
+- The user stated an original idea, observation, or thesis
+- You explained a non-trivial concept the user will want to recall later
+- A person, project, paper, or company was mentioned with meaningful context
+
+Rules for capture:
+- Preserve the user's **exact phrasing** — do not paraphrase or improve it
+- Set \`type\` to \`idea\` for original thinking, \`fact\` for external facts, \`entity_mention\` for people/companies
+- Include \`related_slugs\` if you know which existing concepts this connects to
+
+## Step 3 — End-of-session summary
+
+When a long conversation ends (user says "thanks", "bye", or closes topic), call \`session_summary\` with:
+- A brief summary of what was discussed
+- All concept slugs that came up
+
+## Tool quick reference
+
+| Tool | When to call |
+|---|---|
+| \`brain_ops\` | Before answering any knowledge question |
+| \`capture\` | After any response that contains new knowledge |
+| \`session_summary\` | When a session ends |
+| \`add\` | When user provides a URL, file, or content to ingest |
+| \`search\` | Direct keyword search when brain_ops is too broad |
+| \`concept\` | Get full compiled truth + timeline for a specific concept |
+| \`backlinks\` | Find what else references a concept |
+| \`add_link\` | Manually cross-link two concepts |
+| \`neighbors\` | N-hop neighborhood around a concept |
+| \`path\` | Shortest connection between two concepts |
+| \`god_nodes\` | Most connected concepts — good for orientation |
+| \`communities\` | Topic clusters in the knowledge graph |
+| \`status\` | Show KB statistics |
+`;
+}
+
+/** Content for the Stop hook — nudges Claude to capture knowledge after each response turn. */
+function signalHookScript(): string {
+    return `#!/usr/bin/env bash
+# Lumen Stop hook — nudges Claude to capture knowledge after each response turn.
+# Fires on the Stop event (end of Claude's response).
+
+TOOL_NAME="$1"
+
+if [[ "$TOOL_NAME" == "Stop" ]]; then
+  STATS=$(lumen status --json 2>/dev/null)
+  CONCEPTS=$(echo "$STATS" | grep -o '"concepts":[0-9]*' | cut -d: -f2)
+
+  if [[ -n "$CONCEPTS" && "$CONCEPTS" -gt 0 ]]; then
+    echo "Lumen brain has $CONCEPTS concepts. If this response contained new knowledge, original thinking, or notable entity mentions — call the capture MCP tool now to grow the brain before the session ends."
+  else
+    echo "Lumen brain is empty. If the user shared anything worth remembering, call capture to start growing the brain."
+  fi
+fi
 `;
 }
 
@@ -197,7 +255,13 @@ function installClaude(cwd: string): void {
     log.success(`Created ${relative(cwd, hookPath)}`);
     created++;
 
-    /** 4. Write .claude/settings.json with hook config */
+    /** 3b. Write Stop hook script */
+    const signalHookPath = join(hookDir, 'lumen-signal.sh');
+    writeFileSync(signalHookPath, signalHookScript(), { mode: 0o755 });
+    log.success(`Created ${relative(cwd, signalHookPath)}`);
+    created++;
+
+    /** 4. Write .claude/settings.json with both hook configs */
     const settingsDir = join(cwd, '.claude');
     const settingsPath = join(settingsDir, 'settings.json');
     const hookConfig = {
@@ -208,30 +272,36 @@ function installClaude(cwd: string): void {
                     command: join('.claude', 'hooks', 'lumen-pretool.sh'),
                 },
             ],
+            Stop: [
+                {
+                    matcher: '.*',
+                    command: join('.claude', 'hooks', 'lumen-signal.sh'),
+                },
+            ],
         },
     };
 
     if (existsSync(settingsPath)) {
         const existing = JSON.parse(readFileSync(settingsPath, 'utf-8'));
-        if (
-            !existing.hooks?.PreToolUse?.some((h: { command: string }) =>
-                h.command.includes('lumen'),
-            )
-        ) {
+        const alreadyHasHook = existing.hooks?.PreToolUse?.some((h: { command: string }) =>
+            h.command.includes('lumen'),
+        );
+        if (!alreadyHasHook) {
             existing.hooks = existing.hooks ?? {};
             existing.hooks.PreToolUse = [
                 ...(existing.hooks.PreToolUse ?? []),
                 ...hookConfig.hooks.PreToolUse,
             ];
+            existing.hooks.Stop = [...(existing.hooks.Stop ?? []), ...hookConfig.hooks.Stop];
             writeFileSync(settingsPath, JSON.stringify(existing, null, 4) + '\n', 'utf-8');
-            log.success('Updated .claude/settings.json with PreToolUse hook');
+            log.success('Updated .claude/settings.json with PreToolUse + Stop hooks');
             created++;
         } else {
-            log.dim('.claude/settings.json already has lumen hook');
+            log.dim('.claude/settings.json already has lumen hooks');
         }
     } else {
         writeFileSync(settingsPath, JSON.stringify(hookConfig, null, 4) + '\n', 'utf-8');
-        log.success('Created .claude/settings.json with PreToolUse hook');
+        log.success('Created .claude/settings.json with PreToolUse + Stop hooks');
         created++;
     }
 

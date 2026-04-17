@@ -6,6 +6,8 @@ dist/
 .turbo/
 .env
 .env.local
+.env.dev
+.env.prod
 *.tgz
 
 
