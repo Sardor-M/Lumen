@@ -7,8 +7,11 @@ import { insertSource } from '../store/sources.js';
 import { countChunks, totalTokens, insertChunks } from '../store/chunks.js';
 import { countConcepts, getConcept, getConceptSources } from '../store/concepts.js';
 import { countEdges, getEdgesFrom, getEdgesTo } from '../store/edges.js';
+import { addLink, getBackLinks, getLinksFrom, countLinks } from '../store/links.js';
+import { routedSearch } from '../search/index.js';
 import { searchBm25 } from '../search/bm25.js';
 import { searchTfIdf } from '../search/tfidf.js';
+import { searchVector } from '../search/vector.js';
 import { fuseRrf } from '../search/fusion.js';
 import { selectByBudget } from '../search/budget.js';
 import { shortestPath, neighborhood, godNodes } from '../graph/engine.js';
@@ -37,7 +40,7 @@ export async function startMcpServer(): Promise<void> {
 
     server.tool(
         'search',
-        'Hybrid BM25 + TF-IDF search across all ingested content. Returns ranked chunks with snippets.',
+        'Hybrid BM25 + TF-IDF + vector search across all ingested content. Returns ranked chunks with snippets.',
         {
             query: z.string().describe('Search query'),
             limit: z.number().optional().default(10).describe('Max results'),
@@ -48,14 +51,23 @@ export async function startMcpServer(): Promise<void> {
         },
         async ({ query, limit, budget }) => {
             const start = Date.now();
-            const bm25 = searchBm25(query, limit * 2);
-            const tfidf = searchTfIdf(query, limit * 2);
+            const config = loadConfig();
+
+            const [bm25, tfidf, vec] = await Promise.all([
+                Promise.resolve(searchBm25(query, limit * 2)),
+                Promise.resolve(searchTfIdf(query, limit * 2)),
+                searchVector(query, config, limit * 2),
+            ]);
+
+            const vectorEnabled = vec.length > 0;
+            const bm25w = vectorEnabled ? config.search.bm25_weight : 0.5;
+            const tfidfW = vectorEnabled ? config.search.tfidf_weight : 0.5;
 
             const fused = fuseRrf(
                 [
                     {
                         name: 'bm25',
-                        weight: 0.5,
+                        weight: bm25w,
                         results: bm25.map((r) => ({
                             chunk_id: r.chunk_id,
                             source_id: r.source_id,
@@ -64,13 +76,26 @@ export async function startMcpServer(): Promise<void> {
                     },
                     {
                         name: 'tfidf',
-                        weight: 0.5,
+                        weight: tfidfW,
                         results: tfidf.map((r) => ({
                             chunk_id: r.chunk_id,
                             source_id: r.source_id,
                             score: r.score,
                         })),
                     },
+                    ...(vectorEnabled
+                        ? [
+                              {
+                                  name: 'vector',
+                                  weight: config.search.vector_weight,
+                                  results: vec.map((r) => ({
+                                      chunk_id: r.chunk_id,
+                                      source_id: r.source_id,
+                                      score: r.score,
+                                  })),
+                              },
+                          ]
+                        : []),
                 ],
                 60,
             );
@@ -148,6 +173,7 @@ export async function startMcpServer(): Promise<void> {
             tokens: totalTokens(),
             concepts: countConcepts(),
             edges: countEdges(),
+            links: countLinks(),
             sources_by_type: countSourcesByType(),
         };
         return { content: [{ type: 'text' as const, text: JSON.stringify(stats, null, 2) }] };
@@ -177,7 +203,7 @@ export async function startMcpServer(): Promise<void> {
 
     server.tool(
         'concept',
-        'Get details about a specific concept including its edges and sources.',
+        'Get full details about a concept: compiled_truth (best current understanding), timeline (immutable evidence trail), edges, and sources.',
         {
             slug: z.string().describe('Concept slug'),
         },
@@ -194,7 +220,14 @@ export async function startMcpServer(): Promise<void> {
             const sources = getConceptSources(slug).map((id) => getSource(id)?.title ?? id);
 
             const result = {
-                ...concept,
+                slug: concept.slug,
+                name: concept.name,
+                /** Mutable best-current-understanding, rewritten as new evidence accumulates. */
+                compiled_truth: concept.compiled_truth ?? concept.summary ?? null,
+                /** Immutable evidence trail — one entry per source that mentioned this concept. */
+                timeline: concept.timeline,
+                mention_count: concept.mention_count,
+                article: concept.article ?? null,
                 outgoing_edges: outEdges.map((e) => ({
                     to: e.to_slug,
                     relation: e.relation,
@@ -314,7 +347,7 @@ export async function startMcpServer(): Promise<void> {
 
     server.tool(
         'query',
-        'Ask a question and get a synthesized answer from the knowledge base using search + LLM.',
+        'Ask a question and get a synthesized answer. Uses intent routing: entity/path/neighborhood queries return structured results directly; everything else runs full three-signal hybrid search + LLM synthesis.',
         {
             question: z.string().describe('The question to answer'),
             limit: z.number().optional().default(10).describe('Max chunks to retrieve'),
@@ -324,43 +357,68 @@ export async function startMcpServer(): Promise<void> {
             const start = Date.now();
             const config = loadConfig();
 
-            const bm25 = searchBm25(question, limit * 2);
-            const tfidf = searchTfIdf(question, limit * 2);
+            const routed = await routedSearch(question, config, limit, budget);
 
-            const fused = fuseRrf(
-                [
-                    {
-                        name: 'bm25',
-                        weight: 0.5,
-                        results: bm25.map((r) => ({
-                            chunk_id: r.chunk_id,
-                            source_id: r.source_id,
-                            score: r.score,
-                        })),
-                    },
-                    {
-                        name: 'tfidf',
-                        weight: 0.5,
-                        results: tfidf.map((r) => ({
-                            chunk_id: r.chunk_id,
-                            source_id: r.source_id,
-                            score: r.score,
-                        })),
-                    },
-                ],
-                60,
-            );
+            /** ── Structured routes — return directly without LLM synthesis ── */
+            if (routed.intent === 'entity_lookup' && routed.concept) {
+                logQuery({
+                    tool_name: 'query',
+                    query_text: question,
+                    result_count: 1,
+                    latency_ms: Date.now() - start,
+                    session_id: sessionId,
+                });
+                return {
+                    content: [
+                        { type: 'text' as const, text: JSON.stringify(routed.concept, null, 2) },
+                    ],
+                };
+            }
 
-            const selected = selectByBudget(
-                fused.slice(0, limit).map((r) => ({
-                    chunk_id: r.chunk_id,
-                    source_id: r.source_id,
-                    score: r.rrf_score,
-                })),
-                budget,
-            );
+            if (routed.intent === 'graph_path') {
+                logQuery({
+                    tool_name: 'query',
+                    query_text: question,
+                    result_count: routed.found ? 1 : 0,
+                    latency_ms: Date.now() - start,
+                    session_id: sessionId,
+                });
+                return {
+                    content: [
+                        {
+                            type: 'text' as const,
+                            text: JSON.stringify(
+                                { intent: 'graph_path', found: routed.found, path: routed.path },
+                                null,
+                                2,
+                            ),
+                        },
+                    ],
+                };
+            }
 
-            if (selected.length === 0) {
+            if (routed.intent === 'neighborhood' && routed.neighbors) {
+                logQuery({
+                    tool_name: 'query',
+                    query_text: question,
+                    result_count: routed.neighbors.node_count,
+                    latency_ms: Date.now() - start,
+                    session_id: sessionId,
+                });
+                return {
+                    content: [
+                        {
+                            type: 'text' as const,
+                            text: JSON.stringify(routed.neighbors, null, 2),
+                        },
+                    ],
+                };
+            }
+
+            /** ── Hybrid search — synthesize with LLM ── */
+            const chunks = routed.chunks ?? [];
+
+            if (chunks.length === 0) {
                 logQuery({
                     tool_name: 'query',
                     query_text: question,
@@ -378,13 +436,6 @@ export async function startMcpServer(): Promise<void> {
                 };
             }
 
-            const chunks = selected.map((c) => ({
-                source_title: getSource(c.source_id)?.title ?? c.source_id,
-                heading: null as string | null,
-                content: c.content,
-                score: c.score,
-            }));
-
             const answer = await chat(
                 config,
                 [{ role: 'user', content: qaUserPrompt(question, chunks) }],
@@ -394,7 +445,7 @@ export async function startMcpServer(): Promise<void> {
             logQuery({
                 tool_name: 'query',
                 query_text: question,
-                result_count: selected.length,
+                result_count: chunks.length,
                 latency_ms: Date.now() - start,
                 session_id: sessionId,
             });
@@ -430,7 +481,7 @@ export async function startMcpServer(): Promise<void> {
                 return {
                     slug,
                     name: concept?.name ?? slug,
-                    summary: concept?.summary ?? null,
+                    compiled_truth: concept?.compiled_truth ?? concept?.summary ?? null,
                     mention_count: concept?.mention_count ?? 0,
                 };
             });
@@ -443,6 +494,82 @@ export async function startMcpServer(): Promise<void> {
                     },
                 ],
             };
+        },
+    );
+
+    /** ─── Link Management ─── */
+
+    server.tool(
+        'add_link',
+        'Create a manual directional link between two concepts. Automatically creates the reverse back-link too.',
+        {
+            from_slug: z.string().describe('Source concept slug'),
+            to_slug: z.string().describe('Target concept slug'),
+            context: z
+                .string()
+                .optional()
+                .describe('The passage or reason for this link (up to 200 chars)'),
+        },
+        async ({ from_slug, to_slug, context }) => {
+            addLink(from_slug, to_slug, 'manual', context ?? null, null);
+            addLink(to_slug, from_slug, 'back-link', context ?? null, null);
+            return {
+                content: [
+                    {
+                        type: 'text' as const,
+                        text: JSON.stringify(
+                            { linked: true, from: from_slug, to: to_slug },
+                            null,
+                            2,
+                        ),
+                    },
+                ],
+            };
+        },
+    );
+
+    server.tool(
+        'backlinks',
+        'Get all concepts that reference or link to a given concept — the back-link index.',
+        {
+            slug: z.string().describe('Concept slug to find back-links for'),
+        },
+        async ({ slug }) => {
+            const links = getBackLinks(slug);
+            const result = {
+                slug,
+                backlink_count: links.length,
+                links: links.map((l) => ({
+                    from: l.from_slug,
+                    type: l.link_type,
+                    context: l.context,
+                    added: l.created_at,
+                })),
+            };
+            return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+        },
+    );
+
+    server.tool(
+        'links',
+        'Get all outgoing links from a concept, optionally filtered by link type.',
+        {
+            slug: z.string().describe('Concept slug'),
+            type: z
+                .enum(['reference', 'back-link', 'manual', 'co-occurs'])
+                .optional()
+                .describe('Filter by link type (omit to return all)'),
+        },
+        async ({ slug, type }) => {
+            const links = getLinksFrom(slug, type as Parameters<typeof getLinksFrom>[1]);
+            const result = links.map((l) => ({
+                to: l.to_slug,
+                type: l.link_type,
+                context: l.context,
+                source_id: l.source_id,
+                added: l.created_at,
+            }));
+            return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
         },
     );
 

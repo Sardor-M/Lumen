@@ -4,6 +4,8 @@ import { countSources, countSourcesByType } from '../store/sources.js';
 import { countChunks, totalTokens } from '../store/chunks.js';
 import { countConcepts } from '../store/concepts.js';
 import { countEdges } from '../store/edges.js';
+import { countLinks } from '../store/links.js';
+import { classifierStats } from '../classify/intent.js';
 import { getDataDir, getDbPath } from '../utils/paths.js';
 import { isInitialized } from '../utils/paths.js';
 import * as log from '../utils/logger.js';
@@ -34,11 +36,12 @@ export function registerStatus(program: Command): void {
                 const tokens = totalTokens();
                 const concepts = countConcepts();
                 const edges = countEdges();
+                const links = countLinks();
                 const byType = countSourcesByType();
 
                 if (opts.json) {
                     console.log(
-                        JSON.stringify({ sources, chunks, tokens, concepts, edges, byType }),
+                        JSON.stringify({ sources, chunks, tokens, concepts, edges, links, byType }),
                     );
                     return;
                 }
@@ -54,6 +57,7 @@ export function registerStatus(program: Command): void {
                     'Total tokens': tokens,
                     Concepts: concepts,
                     Edges: edges,
+                    Links: links,
                 });
 
                 if (Object.keys(byType).length > 0) {
@@ -67,6 +71,17 @@ export function registerStatus(program: Command): void {
                     log.table({
                         'Graph density': density,
                         'Avg edges/concept': (edges / concepts).toFixed(1),
+                    });
+                }
+
+                const clf = classifierStats();
+                if (clf.total > 0) {
+                    log.heading('Intent Classifier');
+                    log.table({
+                        'Deterministic (%)': clf.deterministic_pct,
+                        'Pattern hits': clf.pattern_hits,
+                        'LLM fallbacks': clf.llm_fallbacks,
+                        'Learned patterns': clf.learned_patterns,
                     });
                 }
             } catch (err) {
