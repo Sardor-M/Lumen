@@ -50,6 +50,7 @@ function seedCorpus(opts: { sources: number; concepts: number; edges: number; qu
             slug: `concept-${i}`,
             name: `Concept ${i}`,
             summary: null,
+            compiled_truth: null,
             article: null,
             created_at: now,
             updated_at: now,

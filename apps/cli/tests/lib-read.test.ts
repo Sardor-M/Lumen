@@ -36,6 +36,7 @@ function seedConcept(slug: string, name: string, mention = 1): void {
         slug,
         name,
         summary: null,
+        compiled_truth: null,
         article: null,
         created_at: now,
         updated_at: now,
