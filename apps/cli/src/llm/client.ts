@@ -74,14 +74,72 @@ async function chatAnthropic(
     const response = await client.messages.create({
         model,
         max_tokens: opts?.maxTokens ?? 4096,
-        ...(opts?.system ? { system: opts.system } : {}),
         ...(opts?.temperature !== undefined ? { temperature: opts.temperature } : {}),
+        /** Cache system prompts — cuts cost ~60-80% on repeated calls within a session. */
+        ...(opts?.system
+            ? {
+                  system: [
+                      {
+                          type: 'text' as const,
+                          text: opts.system,
+                          cache_control: { type: 'ephemeral' as const },
+                      },
+                  ],
+              }
+            : {}),
         messages: messages.map((m) => ({ role: m.role, content: m.content })),
     });
 
     const block = response.content[0];
     if (block.type !== 'text') throw new Error('Unexpected response type from Anthropic');
     return block.text;
+}
+
+/**
+ * Streaming variant for Anthropic — calls `onToken` on each new text delta.
+ * Falls back to regular `chat()` for non-Anthropic providers.
+ */
+export async function chatAnthropicStream(
+    config: LumenConfig,
+    messages: ChatMessage[],
+    opts: ChatOptions & { onToken: (token: string) => void },
+): Promise<string> {
+    if (config.llm.provider !== 'anthropic') {
+        /** Non-Anthropic providers: fetch full response then emit as single token. */
+        const full = await chat(config, messages, opts);
+        opts.onToken(full);
+        return full;
+    }
+
+    const client = new Anthropic({ apiKey: config.llm.api_key! });
+    let full = '';
+
+    const stream = client.messages.stream({
+        model: config.llm.model,
+        max_tokens: opts.maxTokens ?? 2048,
+        ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
+        ...(opts.system
+            ? {
+                  system: [
+                      {
+                          type: 'text' as const,
+                          text: opts.system,
+                          cache_control: { type: 'ephemeral' as const },
+                      },
+                  ],
+              }
+            : {}),
+        messages: messages.map((m) => ({ role: m.role, content: m.content })),
+    });
+
+    for await (const event of stream) {
+        if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+            opts.onToken(event.delta.text);
+            full += event.delta.text;
+        }
+    }
+
+    return full;
 }
 
 async function chatOpenRouter(

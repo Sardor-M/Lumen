@@ -6,7 +6,7 @@ import { fuseRrf } from '../search/fusion.js';
 import { selectByBudget } from '../search/budget.js';
 import { getDb } from '../store/database.js';
 import { getSource } from '../store/sources.js';
-import { chat } from '../llm/client.js';
+import { chatAnthropicStream } from '../llm/client.js';
 import { QA_SYSTEM, qaUserPrompt } from '../llm/prompts/qa.js';
 import { loadConfig } from '../utils/config.js';
 import * as log from '../utils/logger.js';
@@ -79,18 +79,20 @@ export function registerAsk(program: Command): void {
                     score: c.score,
                 }));
 
-                const answer = await chat(
+                spinner.stop();
+                log.heading('Answer');
+
+                await chatAnthropicStream(
                     config,
                     [{ role: 'user', content: qaUserPrompt(question, chunks) }],
-                    { system: QA_SYSTEM, maxTokens: 2048 },
+                    {
+                        system: QA_SYSTEM,
+                        maxTokens: 2048,
+                        onToken: (token) => process.stdout.write(token),
+                    },
                 );
 
-                spinner.stop();
-
-                log.heading('Answer');
-                console.log(answer);
-                console.log();
-
+                process.stdout.write('\n\n');
                 log.dim(`Sources: ${[...new Set(chunks.map((c) => c.source_title))].join(', ')}`);
             } catch (err) {
                 log.error(err instanceof Error ? err.message : String(err));
