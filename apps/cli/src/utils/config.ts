@@ -17,6 +17,17 @@ const DEFAULT_CONFIG: LumenConfig = {
     search: {
         max_results: 20,
         token_budget: 4000,
+        bm25_weight: 0.35,
+        tfidf_weight: 0.3,
+        vector_weight: 0.35,
+    },
+    embedding: {
+        provider: 'none',
+        model: 'text-embedding-3-small',
+        dimensions: 1536,
+        api_key: null,
+        base_url: null,
+        batch_size: 100,
     },
 };
 
@@ -38,11 +49,16 @@ export function loadConfig(): LumenConfig {
         llm: { ...DEFAULT_CONFIG.llm, ...fileConfig.llm },
         chunker: { ...DEFAULT_CONFIG.chunker, ...fileConfig.chunker },
         search: { ...DEFAULT_CONFIG.search, ...fileConfig.search },
+        embedding: { ...DEFAULT_CONFIG.embedding, ...fileConfig.embedding },
     };
 
     if (!config.llm.api_key) {
         config.llm.api_key =
             process.env.ANTHROPIC_API_KEY || process.env.OPENROUTER_API_KEY || null;
+    }
+
+    if (!config.embedding.api_key) {
+        config.embedding.api_key = process.env.OPENAI_API_KEY || null;
     }
 
     return config;
