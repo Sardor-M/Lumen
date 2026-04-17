@@ -1,35 +1,130 @@
 import { getDb } from './database.js';
-import type { Concept, SourceConcept } from '../types/index.js';
+import type { Concept, SourceConcept, TimelineEntry } from '../types/index.js';
 import { invalidateProfile } from '../profile/invalidate.js';
 
-export function upsertConcept(concept: Concept): void {
+/** Parse the raw `timeline` JSON column into a typed array, newest first. */
+function parseTimeline(raw: unknown): TimelineEntry[] {
+    if (!raw || raw === '[]') return [];
+    try {
+        const entries = JSON.parse(raw as string) as TimelineEntry[];
+        return entries.slice().reverse();
+    } catch {
+        return [];
+    }
+}
+
+/** Map a raw DB row to a typed Concept, parsing the timeline JSON. */
+function rowToConcept(row: Record<string, unknown>): Concept {
+    return {
+        slug: row.slug as string,
+        name: row.name as string,
+        summary: (row.summary as string | null) ?? null,
+        compiled_truth: (row.compiled_truth as string | null) ?? null,
+        timeline: parseTimeline(row.timeline),
+        article: (row.article as string | null) ?? null,
+        created_at: row.created_at as string,
+        updated_at: row.updated_at as string,
+        mention_count: row.mention_count as number,
+    };
+}
+
+export function upsertConcept(
+    concept: Omit<Concept, 'timeline'> & { timeline?: TimelineEntry[] },
+): void {
     getDb()
         .prepare(
-            `INSERT INTO concepts (slug, name, summary, article, created_at, updated_at, mention_count)
-       VALUES (@slug, @name, @summary, @article, @created_at, @updated_at, @mention_count)
+            `INSERT INTO concepts (slug, name, summary, compiled_truth, article, created_at, updated_at, mention_count)
+       VALUES (@slug, @name, @summary, @compiled_truth, @article, @created_at, @updated_at, @mention_count)
        ON CONFLICT(slug) DO UPDATE SET
-         name = @name,
-         summary = COALESCE(@summary, concepts.summary),
-         article = COALESCE(@article, concepts.article),
-         updated_at = @updated_at,
+         name         = @name,
+         summary      = COALESCE(@summary, concepts.summary),
+         compiled_truth = COALESCE(@compiled_truth, concepts.compiled_truth),
+         article      = COALESCE(@article, concepts.article),
+         updated_at   = @updated_at,
          mention_count = concepts.mention_count + 1`,
         )
-        .run(concept);
+        .run({
+            slug: concept.slug,
+            name: concept.name,
+            summary: concept.summary ?? null,
+            compiled_truth: concept.compiled_truth ?? null,
+            article: concept.article ?? null,
+            created_at: concept.created_at,
+            updated_at: concept.updated_at,
+            mention_count: concept.mention_count,
+        });
     invalidateProfile();
 }
 
 export function getConcept(slug: string): Concept | null {
-    return (getDb().prepare('SELECT * FROM concepts WHERE slug = ?').get(slug) as Concept) ?? null;
+    const row = getDb().prepare('SELECT * FROM concepts WHERE slug = ?').get(slug) as
+        | Record<string, unknown>
+        | undefined;
+    return row ? rowToConcept(row) : null;
 }
 
 export function listConcepts(): Concept[] {
-    return getDb().prepare('SELECT * FROM concepts ORDER BY mention_count DESC').all() as Concept[];
+    const rows = getDb()
+        .prepare('SELECT * FROM concepts ORDER BY mention_count DESC')
+        .all() as Record<string, unknown>[];
+    return rows.map(rowToConcept);
 }
 
 export function updateArticle(slug: string, article: string): void {
     getDb()
         .prepare('UPDATE concepts SET article = ?, updated_at = ? WHERE slug = ?')
         .run(article, new Date().toISOString(), slug);
+}
+
+/**
+ * Replace the mutable compiled_truth section with a new synthesis.
+ * Called by the compiler whenever new evidence materially changes the picture.
+ */
+export function updateCompiledTruth(slug: string, truth: string): void {
+    getDb()
+        .prepare(
+            `UPDATE concepts SET compiled_truth = ?, summary = ?, updated_at = ? WHERE slug = ?`,
+        )
+        .run(truth, truth, new Date().toISOString(), slug);
+}
+
+/**
+ * Append one entry to a concept's immutable evidence trail.
+ * Never modifies existing entries — only ever appends.
+ */
+export function appendTimeline(slug: string, entry: TimelineEntry): void {
+    const db = getDb();
+    const row = db.prepare('SELECT timeline FROM concepts WHERE slug = ?').get(slug) as
+        | { timeline: string }
+        | undefined;
+
+    if (!row) return;
+
+    let existing: TimelineEntry[] = [];
+    try {
+        existing = JSON.parse(row.timeline) as TimelineEntry[];
+    } catch {
+        existing = [];
+    }
+
+    existing.push(entry);
+
+    db.prepare('UPDATE concepts SET timeline = ?, updated_at = ? WHERE slug = ?').run(
+        JSON.stringify(existing),
+        new Date().toISOString(),
+        slug,
+    );
+}
+
+/**
+ * Return the full timeline for a concept, newest first.
+ * Safe to call even when timeline column is missing (pre-v6 databases).
+ */
+export function getTimeline(slug: string): TimelineEntry[] {
+    const row = getDb().prepare('SELECT timeline FROM concepts WHERE slug = ?').get(slug) as
+        | { timeline?: string }
+        | undefined;
+    return parseTimeline(row?.timeline);
 }
 
 export function deleteConcept(slug: string): void {

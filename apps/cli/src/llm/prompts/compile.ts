@@ -25,7 +25,8 @@ Return a single JSON object with exactly two keys:
     {
       "slug": "transformer-architecture",
       "name": "Transformer Architecture",
-      "summary": "A neural network architecture that replaces recurrence with self-attention for sequence modeling."
+      "compiled_truth": "A neural network architecture that replaces recurrence with self-attention for sequence modeling. Introduced in 'Attention Is All You Need' (Vaswani et al., 2017), it became the foundation for all modern LLMs.",
+      "timeline_event": "Introduced the transformer architecture as a replacement for RNN-based sequence models"
     }
   ],
   "edges": [
@@ -43,7 +44,8 @@ Return a single JSON object with exactly two keys:
 - Extract **3-15 concepts** per source. Focus on ideas worth tracking across multiple readings.
 - **slug**: lowercase, hyphen-separated, URL-safe. Must be stable — the same idea from different sources should produce the same slug. "Transformer Architecture" → "transformer-architecture", not "transformers" or "the-transformer-model".
 - **name**: human-readable, title case.
-- **summary**: 1-2 sentences. What it IS, not what the article says about it.
+- **compiled_truth**: 2-4 sentences. What it IS and WHY it matters — written as a durable knowledge-base entry, not a summary of this specific article. If you have seen this concept before, synthesise a richer understanding. This is the mutable best-current-understanding.
+- **timeline_event**: one concise sentence describing what THIS specific source contributes to understanding this concept (e.g. "Introduced transformer architecture as a replacement for RNN-based models"). This is appended to the concept's immutable evidence trail.
 - Prefer **specific** over generic: "multi-head-attention" over "neural-networks", "adam-optimizer" over "optimization".
 - Prefer **canonical names**: use the established term ("backpropagation" not "backward-pass", "dropout" not "dropping-neurons").
 - Do NOT extract: section headings, author names, publication venues, or meta-information about the article itself.
@@ -102,7 +104,10 @@ export type CompileResponse = {
     concepts: {
         slug: string;
         name: string;
-        summary: string;
+        /** Mutable best-current-understanding (2-4 sentences). */
+        compiled_truth: string;
+        /** One-line contribution from this specific source — appended to timeline. */
+        timeline_event: string;
     }[];
     edges: {
         from: string;

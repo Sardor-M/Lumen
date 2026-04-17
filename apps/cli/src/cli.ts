@@ -16,6 +16,7 @@ import { registerMemory } from './commands/memory.js';
 import { registerServe } from './commands/serve.js';
 import { registerWatch } from './commands/watch.js';
 import { registerDaemon } from './commands/daemon.js';
+import { registerEmbed } from './commands/embed.js';
 
 /**
  * Load .env before any command runs — the globally-installed bin won't pick up
@@ -62,6 +63,7 @@ if (process.argv.includes('--mcp')) {
     registerServe(program);
     registerWatch(program);
     registerDaemon(program);
+    registerEmbed(program);
     registerInstall(program);
 
     program.parse();

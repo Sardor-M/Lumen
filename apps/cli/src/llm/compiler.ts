@@ -2,10 +2,16 @@ import { chatJson } from './client.js';
 import { COMPILE_SYSTEM, compileUserPrompt } from './prompts.js';
 import type { CompileResponse } from './prompts.js';
 import { getChunksBySource } from '../store/chunks.js';
-import { upsertConcept } from '../store/concepts.js';
+import {
+    upsertConcept,
+    getConcept,
+    appendTimeline,
+    updateCompiledTruth,
+    linkSourceConcept,
+} from '../store/concepts.js';
 import { upsertEdge } from '../store/edges.js';
-import { linkSourceConcept } from '../store/concepts.js';
 import { markCompiled } from '../store/sources.js';
+import { autoLinkFromCompiledTruth } from '../store/links.js';
 import { toSlug } from '../utils/slug.js';
 import { audit } from '../utils/logger.js';
 import type { LumenConfig, CompilationResult, RelationType } from '../types/index.js';
@@ -63,23 +69,46 @@ export async function compileSource(
     );
 
     const now = new Date().toISOString();
+    const today = now.slice(0, 10);
     const conceptsCreated: string[] = [];
     const conceptsUpdated: string[] = [];
 
-    /** Upsert concepts. */
+    /** Upsert concepts with compiled_truth + timeline. */
     for (const concept of response.concepts) {
         const slug = toSlug(concept.slug || concept.name);
         if (!slug) continue;
 
-        const existing = (await import('../store/concepts.js')).getConcept(slug);
+        const existing = getConcept(slug);
+        const compiledTruth = concept.compiled_truth || null;
+
         upsertConcept({
             slug,
             name: concept.name,
-            summary: concept.summary || null,
+            summary: compiledTruth,
+            compiled_truth: compiledTruth,
             article: null,
             created_at: existing ? existing.created_at : now,
             updated_at: now,
             mention_count: 1,
+        });
+
+        /**
+         * If the concept already existed, update its compiled_truth with the
+         * new synthesis — this is the mutable best-current-understanding.
+         */
+        if (existing && compiledTruth) {
+            updateCompiledTruth(slug, compiledTruth);
+        }
+
+        /** Always append to the timeline — immutable evidence record. */
+        const timelineEvent = concept.timeline_event || `Appeared in "${sourceTitle}"`;
+
+        appendTimeline(slug, {
+            date: today,
+            source_id: sourceId,
+            source_title: sourceTitle,
+            event: timelineEvent,
+            detail: null,
         });
 
         linkSourceConcept({ source_id: sourceId, concept_slug: slug, relevance: 0.8 });
@@ -88,6 +117,18 @@ export async function compileSource(
             conceptsUpdated.push(slug);
         } else {
             conceptsCreated.push(slug);
+        }
+    }
+
+    /**
+     * Auto-link concepts whose compiled_truth mentions other known concepts.
+     * Run after all concepts are upserted so every slug in this source is available.
+     */
+    for (const concept of response.concepts) {
+        const slug = toSlug(concept.slug || concept.name);
+        const truth = concept.compiled_truth;
+        if (slug && truth) {
+            autoLinkFromCompiledTruth(slug, truth, sourceId);
         }
     }
 
