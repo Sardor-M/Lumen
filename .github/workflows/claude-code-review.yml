@@ -1,42 +1,225 @@
-name: Claude Code Review
+name: Claude PR Review
 
 on:
     pull_request:
-        types: [opened, synchronize, ready_for_review, reopened]
-        # Optional: Only run on specific file changes
-        # paths:
-        #   - "src/**/*.ts"
-        #   - "src/**/*.tsx"
-        #   - "src/**/*.js"
-        #   - "src/**/*.jsx"
+        types: [opened, synchronize]
 
 jobs:
-    claude-review:
-        # Optional: Filter by PR author
-        # if: |
-        #   github.event.pull_request.user.login == 'external-contributor' ||
-        #   github.event.pull_request.user.login == 'new-developer' ||
-        #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
-
+    review:
         runs-on: ubuntu-latest
         permissions:
-            contents: read
             pull-requests: write
-            issues: write
-            id-token: write
+            contents: read
 
         steps:
-            - name: Checkout repository
+            - name: Checkout
               uses: actions/checkout@v4
               with:
-                  fetch-depth: 1
+                  fetch-depth: 0
 
-            - name: Run Claude Code Review
-              id: claude-review
-              uses: anthropics/claude-code-action@v1
-              with:
-                  anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-                  plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
-                  plugins: 'code-review@claude-code-plugins'
-                  prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
-                  allowed_tools: 'Bash(gh pr *),Bash(gh api *),Bash(git diff *),Bash(git log *),Bash(git show *)'
+            - name: Get PR diff and related file context
+              id: diff
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  PR_NUM=${{ github.event.pull_request.number }}
+                  echo "PR number: $PR_NUM"
+
+                  # --- Raw diff ---
+                  RAW_DIFF=$(gh pr diff "$PR_NUM") || {
+                    echo "::error::gh pr diff failed with exit code $?"
+                    exit 1
+                  }
+
+                  RAW_LINES=$(echo "$RAW_DIFF" | wc -l | tr -d ' ')
+                  echo "Raw diff lines: $RAW_LINES"
+
+                  DIFF=$(echo "$RAW_DIFF" | grep -v -E '^diff --git.*(pnpm-lock\.yaml|package-lock\.json|yarn\.lock|\.png|\.jpg|\.svg|\.ico|\.map)' | head -n 8000)
+                  DIFF_LINES=$(echo "$DIFF" | wc -l | tr -d ' ')
+                  echo "Filtered diff lines: $DIFF_LINES"
+
+                  if [ -z "$RAW_DIFF" ]; then
+                    echo "::warning::gh pr diff returned empty output. Skipping review."
+                    echo "skip=true" >> "$GITHUB_OUTPUT"
+                    : > /tmp/pr_context.txt
+                    exit 0
+                  fi
+
+                  # --- Cost guard: skip very large diffs ---
+                  MAX_DIFF_LINES=500
+                  if [ "$DIFF_LINES" -gt "$MAX_DIFF_LINES" ]; then
+                    echo "::warning::Diff too large ($DIFF_LINES lines > $MAX_DIFF_LINES). Skipping to stay within cost budget."
+                    echo "skip=true" >> "$GITHUB_OUTPUT"
+                    echo "skip_reason=diff_too_large" >> "$GITHUB_OUTPUT"
+                    : > /tmp/pr_context.txt
+                    exit 0
+                  fi
+
+                  echo "skip=false" >> "$GITHUB_OUTPUT"
+                  echo "diff_lines=$DIFF_LINES" >> "$GITHUB_OUTPUT"
+                  echo "$DIFF" > /tmp/pr_diff.txt
+
+                  # --- Related file context ---
+                  CHANGED_FILES=$(gh pr view "$PR_NUM" --json files -q '.files[].path' \
+                    | grep -E '\.(ts|tsx|js|jsx|mjs|cjs)$' \
+                    | grep -v -E '(pnpm-lock\.yaml|package-lock\.json|yarn\.lock|\.d\.ts$)' \
+                    || true)
+                  echo "Changed code files:"
+                  echo "$CHANGED_FILES"
+
+                  : > /tmp/pr_context.txt
+                  MAX_TOTAL_LINES=3000
+                  MAX_FILE_LINES=300
+
+                  append_file() {
+                    local path="$1"
+                    local kind="$2"
+                    [ ! -f "$path" ] && return 0
+                    local cur
+                    cur=$(wc -l < /tmp/pr_context.txt | tr -d ' ')
+                    if [ "$cur" -ge "$MAX_TOTAL_LINES" ]; then return 0; fi
+                    {
+                      printf '\n===== %s: %s =====\n' "$kind" "$path"
+                      head -n "$MAX_FILE_LINES" "$path"
+                    } >> /tmp/pr_context.txt
+                  }
+
+                  resolve_import() {
+                    local src="$1"
+                    local spec="$2"
+                    local base
+                    case "$spec" in
+                      @/*) base="app/${spec#@/}" ;;
+                      ./*|../*) base="$(dirname "$src")/$spec" ;;
+                      *) base="$spec" ;;
+                    esac
+                    base=$(realpath -m --relative-to=. "$base" 2>/dev/null || echo "$base")
+                    case "$base" in node_modules/*|/*|../*) return 1 ;; esac
+                    for ext in .ts .tsx .js .jsx .mjs .cjs; do
+                      [ -f "${base}${ext}" ] && { echo "${base}${ext}"; return 0; }
+                    done
+                    for ext in .ts .tsx .js .jsx .mjs .cjs; do
+                      [ -f "${base}/index${ext}" ] && { echo "${base}/index${ext}"; return 0; }
+                    done
+                    return 1
+                  }
+
+                  declare -A SEEN
+                  while IFS= read -r f; do
+                    [ -z "$f" ] && continue
+                    SEEN["$f"]=1
+                    append_file "$f" "CHANGED"
+                  done <<< "$CHANGED_FILES"
+
+                  while IFS= read -r f; do
+                    [ -z "$f" ] && continue
+                    [ ! -f "$f" ] && continue
+                    IMPORTS=$({
+                      sed -nE "s/.*from [\"']([^\"']+)[\"'].*/\1/p" "$f"
+                      sed -nE "s/.*import\([\"']([^\"']+)[\"'].*/\1/p" "$f"
+                      sed -nE "s/.*require\([\"']([^\"']+)[\"'].*/\1/p" "$f"
+                    } | sort -u)
+                    while IFS= read -r spec; do
+                      [ -z "$spec" ] && continue
+                      resolved=$(resolve_import "$f" "$spec") || continue
+                      [ "${SEEN[$resolved]:-0}" = "1" ] && continue
+                      SEEN["$resolved"]=1
+                      append_file "$resolved" "RELATED"
+                    done <<< "$IMPORTS"
+                  done <<< "$CHANGED_FILES"
+
+                  CTX_LINES=$(wc -l < /tmp/pr_context.txt | tr -d ' ')
+                  echo "Context lines: $CTX_LINES"
+                  echo "context_lines=$CTX_LINES" >> "$GITHUB_OUTPUT"
+
+            - name: Post skip notice
+              if: steps.diff.outputs.skip == 'true' && steps.diff.outputs.skip_reason == 'diff_too_large'
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  gh pr comment ${{ github.event.pull_request.number }} \
+                    --repo ${{ github.repository }} \
+                    --body "## 🤖 Claude Code Review
+
+                  Skipped — diff is too large for automated review (> 500 lines). Use \`@claude\` in a comment to ask targeted questions about specific files or sections."
+
+            - name: Review with Claude
+              id: review
+              if: steps.diff.outputs.skip != 'true'
+              env:
+                  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+                  PR_TITLE: ${{ github.event.pull_request.title }}
+                  PR_BODY: ${{ github.event.pull_request.body }}
+              run: |
+                  PR_BODY_TRIMMED=$(echo "$PR_BODY" | head -c 500)
+
+                  jq -n \
+                    --rawfile diff /tmp/pr_diff.txt \
+                    --rawfile context /tmp/pr_context.txt \
+                    --arg title "$PR_TITLE" \
+                    --arg body "$PR_BODY_TRIMMED" \
+                    '{
+                      model: "claude-haiku-4-5-20251001",
+                      max_tokens: 512,
+                      messages: [
+                        {
+                          role: "user",
+                          content: ("You are a concise code reviewer. This is a TypeScript monorepo (Next.js 15 + CLI).\n\nPR Title: " + $title + "\nPR Description: " + $body + "\n\nReview the DIFF below. The FILE CONTEXT section contains full post-change contents of changed files and their directly imported local files — use it to verify signatures, types, and surrounding logic before claiming a bug. Do not flag issues that the context disproves.\n\nFocus ONLY on:\n1. Bugs or logic errors\n2. Security issues\n3. Performance problems\n4. TypeScript type safety issues\n\nSkip style/formatting nitpicks. If the code looks good, say so briefly.\nKeep your review under 250 words. Use markdown.\n\n# Diff\n```\n" + $diff + "\n```\n\n# File Context\n```\n" + $context + "\n```")
+                        }
+                      ]
+                    }' > /tmp/payload.json
+
+                  RESPONSE=$(curl -s https://api.anthropic.com/v1/messages \
+                    -H "content-type: application/json" \
+                    -H "x-api-key: $ANTHROPIC_API_KEY" \
+                    -H "anthropic-version: 2023-06-01" \
+                    -d @/tmp/payload.json)
+
+                  echo "Stop reason: $(echo "$RESPONSE" | jq -r '.stop_reason // .error.message // "unknown"')"
+
+                  REVIEW=$(echo "$RESPONSE" | jq -r '.content[0].text // empty')
+
+                  if [ -z "$REVIEW" ]; then
+                    echo "::error::Claude API returned no review text"
+                    echo "$RESPONSE" | jq .
+                    exit 1
+                  fi
+
+                  echo "$REVIEW" > /tmp/review.txt
+
+                  IN_TOK=$(echo "$RESPONSE"  | jq -r '.usage.input_tokens // 0')
+                  OUT_TOK=$(echo "$RESPONSE" | jq -r '.usage.output_tokens // 0')
+                  CW_TOK=$(echo "$RESPONSE"  | jq -r '.usage.cache_creation_input_tokens // 0')
+                  CR_TOK=$(echo "$RESPONSE"  | jq -r '.usage.cache_read_input_tokens // 0')
+
+                  COST=$(awk -v i="$IN_TOK" -v o="$OUT_TOK" -v cw="$CW_TOK" -v cr="$CR_TOK" \
+                    'BEGIN { printf "%.6f", (i*1.0 + o*5.0 + cw*1.25 + cr*0.10) / 1000000 }')
+
+                  echo "Tokens: input=$IN_TOK output=$OUT_TOK cache_write=$CW_TOK cache_read=$CR_TOK"
+                  echo "Estimated cost: \$$COST USD"
+
+                  {
+                    echo "input_tokens=$IN_TOK"
+                    echo "output_tokens=$OUT_TOK"
+                    echo "cache_write_tokens=$CW_TOK"
+                    echo "cache_read_tokens=$CR_TOK"
+                    echo "cost_usd=$COST"
+                  } >> "$GITHUB_OUTPUT"
+
+            - name: Post review comment
+              if: steps.diff.outputs.skip != 'true'
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  {
+                    echo "## 🤖 Claude Code Review"
+                    echo ""
+                    cat /tmp/review.txt
+                    echo ""
+                    echo "---"
+                    echo "*Reviewed by Claude Haiku 4.5 · diff: ${{ steps.diff.outputs.diff_lines }} lines · context: ${{ steps.diff.outputs.context_lines }} lines · tokens: ${{ steps.review.outputs.input_tokens }} in / ${{ steps.review.outputs.output_tokens }} out · cost: \$${{ steps.review.outputs.cost_usd }} · tag \`@claude\` to ask follow-up questions*"
+                  } > /tmp/comment.txt
+
+                  gh pr comment ${{ github.event.pull_request.number }} \
+                    --repo ${{ github.repository }} \
+                    --body-file /tmp/comment.txt
