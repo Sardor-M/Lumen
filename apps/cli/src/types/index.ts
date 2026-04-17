@@ -62,6 +62,14 @@ export type TimelineEntry = {
     detail: string | null;
 };
 
+/**
+ * Enrichment tier — lower number = richer knowledge page.
+ * 1 = full pipeline (6+ mentions, 3+ sources)
+ * 2 = enriched summary (3+ mentions, 2+ sources)
+ * 3 = stub (newly seen concept)
+ */
+export type EnrichmentTier = 1 | 2 | 3;
+
 export type Concept = {
     slug: string;
     name: string;
@@ -81,6 +89,11 @@ export type Concept = {
     created_at: string;
     updated_at: string;
     mention_count: number;
+    /** Tiered enrichment — 1 = full, 2 = enriched, 3 = stub. Managed by `updateEnrichmentTiers`. */
+    enrichment_tier: EnrichmentTier;
+    last_enriched_at: string | null;
+    /** 1 = queued for enrichment, 0 = current. */
+    enrichment_queued: number;
 };
 
 export type Edge = {

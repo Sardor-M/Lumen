@@ -3,6 +3,7 @@ import { getDb } from '../store/database.js';
 import { listSources } from '../store/sources.js';
 import { compileSource } from '../llm/compiler.js';
 import { generateReport } from '../graph/report.js';
+import { updateEnrichmentTiers } from '../enrich/index.js';
 import { loadConfig } from '../utils/config.js';
 import { audit } from '../utils/logger.js';
 import * as log from '../utils/logger.js';
@@ -67,6 +68,14 @@ export function registerCompile(program: Command): void {
                     Edges: totalEdges,
                     'Est. tokens': totalTokens,
                 });
+
+                /** Update enrichment tiers based on new evidence density. */
+                const { queued } = updateEnrichmentTiers();
+                if (queued > 0) {
+                    log.dim(
+                        `${queued} concept${queued === 1 ? '' : 's'} queued for enrichment — run: lumen enrich`,
+                    );
+                }
 
                 /** Generate graph report. */
                 if (opts.report !== false) {
