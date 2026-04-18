@@ -39,7 +39,7 @@ export function updateEnrichmentTiers(): { queued: number } {
     let queued = 0;
 
     const update = db.prepare(
-        `UPDATE concepts SET enrichment_tier = ?, enrichment_queued = ? WHERE slug = ?`,
+        `UPDATE concepts SET enrichment_tier = ?, enrichment_queued = CASE WHEN ? = 1 THEN 1 ELSE enrichment_queued END WHERE slug = ?`,
     );
 
     const batch = db.transaction(() => {
