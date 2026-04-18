@@ -137,8 +137,8 @@ export async function chatAnthropicStream(
             }
         }
     } catch (err) {
-        /** Guarantee the cursor is on a new line before the caller prints an error. */
-        if (full.length > 0) process.stdout.write('\n');
+        /** Route the terminating newline through onToken so the caller owns its output stream. */
+        if (full.length > 0) opts.onToken('\n');
         throw err;
     }
 

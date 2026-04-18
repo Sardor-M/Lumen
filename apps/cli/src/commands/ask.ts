@@ -80,15 +80,22 @@ export function registerAsk(program: Command): void {
                 }));
 
                 spinner.stop();
-                log.heading('Answer');
 
+                /** Print the heading on first token so a pre-stream error surfaces cleanly. */
+                let headingPrinted = false;
                 await chatAnthropicStream(
                     config,
                     [{ role: 'user', content: qaUserPrompt(question, chunks) }],
                     {
                         system: QA_SYSTEM,
                         maxTokens: 2048,
-                        onToken: (token) => process.stdout.write(token),
+                        onToken: (token) => {
+                            if (!headingPrinted) {
+                                log.heading('Answer');
+                                headingPrinted = true;
+                            }
+                            process.stdout.write(token);
+                        },
                     },
                 );
 
