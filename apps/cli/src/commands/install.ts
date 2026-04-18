@@ -283,16 +283,24 @@ function installClaude(cwd: string): void {
 
     if (existsSync(settingsPath)) {
         const existing = JSON.parse(readFileSync(settingsPath, 'utf-8'));
-        const alreadyHasHook = existing.hooks?.PreToolUse?.some((h: { command: string }) =>
+        const alreadyHasPreTool = existing.hooks?.PreToolUse?.some((h: { command: string }) =>
             h.command.includes('lumen'),
         );
-        if (!alreadyHasHook) {
+        const alreadyHasStop = existing.hooks?.Stop?.some((h: { command: string }) =>
+            h.command.includes('lumen'),
+        );
+
+        if (!alreadyHasPreTool || !alreadyHasStop) {
             existing.hooks = existing.hooks ?? {};
-            existing.hooks.PreToolUse = [
-                ...(existing.hooks.PreToolUse ?? []),
-                ...hookConfig.hooks.PreToolUse,
-            ];
-            existing.hooks.Stop = [...(existing.hooks.Stop ?? []), ...hookConfig.hooks.Stop];
+            if (!alreadyHasPreTool) {
+                existing.hooks.PreToolUse = [
+                    ...(existing.hooks.PreToolUse ?? []),
+                    ...hookConfig.hooks.PreToolUse,
+                ];
+            }
+            if (!alreadyHasStop) {
+                existing.hooks.Stop = [...(existing.hooks.Stop ?? []), ...hookConfig.hooks.Stop];
+            }
             writeFileSync(settingsPath, JSON.stringify(existing, null, 4) + '\n', 'utf-8');
             log.success('Updated .claude/settings.json with PreToolUse + Stop hooks');
             created++;
