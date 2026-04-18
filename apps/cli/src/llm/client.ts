@@ -136,6 +136,8 @@ export async function chatAnthropicStream(
                 full += event.delta.text;
             }
         }
+        /** Surface any error queued after the final iterator event (SDK-version-defensive). */
+        await stream.finalMessage();
     } catch (err) {
         /** Route the terminating newline through onToken so the caller owns its output stream. */
         if (full.length > 0) opts.onToken('\n');

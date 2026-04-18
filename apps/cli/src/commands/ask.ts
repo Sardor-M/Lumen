@@ -20,13 +20,14 @@ export function registerAsk(program: Command): void {
         .option('-n, --limit <n>', 'Max chunks to retrieve', '10')
         .option('-b, --budget <tokens>', 'Token budget for context', '4000')
         .action(async (question: string, opts: { limit: string; budget: string }) => {
+            let spinner: ReturnType<typeof ora> | undefined;
             try {
                 const config = loadConfig();
                 getDb();
                 const limit = parseInt(opts.limit) || 10;
                 const budget = parseInt(opts.budget) || config.search.token_budget;
 
-                const spinner = ora('Searching knowledge base...').start();
+                spinner = ora('Searching knowledge base...').start();
 
                 const bm25 = searchBm25(question, limit * 2);
                 const tfidf = searchTfIdf(question, limit * 2);
@@ -102,6 +103,7 @@ export function registerAsk(program: Command): void {
                 process.stdout.write('\n\n');
                 log.dim(`Sources: ${[...new Set(chunks.map((c) => c.source_title))].join(', ')}`);
             } catch (err) {
+                spinner?.stop();
                 log.error(err instanceof Error ? err.message : String(err));
                 process.exitCode = 1;
             }
