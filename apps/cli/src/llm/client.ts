@@ -63,6 +63,31 @@ export async function chatJson<T>(
     }
 }
 
+/**
+ * Shared builder for Anthropic request params — used by both streaming and
+ * non-streaming paths so cache_control, defaults, and option shaping stay in sync.
+ */
+function buildAnthropicParams(model: string, messages: ChatMessage[], opts?: ChatOptions) {
+    return {
+        model,
+        max_tokens: opts?.maxTokens ?? 4096,
+        ...(opts?.temperature !== undefined ? { temperature: opts.temperature } : {}),
+        /** Cache system prompts — cuts cost ~60-80% on repeated calls within a session. */
+        ...(opts?.system
+            ? {
+                  system: [
+                      {
+                          type: 'text' as const,
+                          text: opts.system,
+                          cache_control: { type: 'ephemeral' as const },
+                      },
+                  ],
+              }
+            : {}),
+        messages: messages.map((m) => ({ role: m.role, content: m.content })),
+    };
+}
+
 async function chatAnthropic(
     apiKey: string,
     model: string,
@@ -70,18 +95,56 @@ async function chatAnthropic(
     opts?: ChatOptions,
 ): Promise<string> {
     const client = new Anthropic({ apiKey });
-
-    const response = await client.messages.create({
-        model,
-        max_tokens: opts?.maxTokens ?? 4096,
-        ...(opts?.system ? { system: opts.system } : {}),
-        ...(opts?.temperature !== undefined ? { temperature: opts.temperature } : {}),
-        messages: messages.map((m) => ({ role: m.role, content: m.content })),
-    });
+    const response = await client.messages.create(buildAnthropicParams(model, messages, opts));
 
     const block = response.content[0];
     if (block.type !== 'text') throw new Error('Unexpected response type from Anthropic');
     return block.text;
+}
+
+/**
+ * Streaming variant for Anthropic — calls `onToken` on each new text delta.
+ * Falls back to regular `chat()` for non-Anthropic providers.
+ */
+export async function chatAnthropicStream(
+    config: LumenConfig,
+    messages: ChatMessage[],
+    opts: ChatOptions & { onToken: (token: string) => void },
+): Promise<string> {
+    if (config.llm.provider !== 'anthropic') {
+        /** Non-Anthropic providers: fetch full response then emit as single token. */
+        const full = await chat(config, messages, opts);
+        opts.onToken(full);
+        return full;
+    }
+
+    if (!config.llm.api_key) {
+        throw new Error(
+            `No API key configured. Set ANTHROPIC_API_KEY or run: lumen config --api-key <key>`,
+        );
+    }
+
+    const client = new Anthropic({ apiKey: config.llm.api_key });
+    let full = '';
+
+    const stream = client.messages.stream(buildAnthropicParams(config.llm.model, messages, opts));
+
+    try {
+        for await (const event of stream) {
+            if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+                opts.onToken(event.delta.text);
+                full += event.delta.text;
+            }
+        }
+        /** Surface any error queued after the final iterator event (SDK-version-defensive). */
+        await stream.finalMessage();
+    } catch (err) {
+        /** Route the terminating newline through onToken so the caller owns its output stream. */
+        if (full.length > 0) opts.onToken('\n');
+        throw err;
+    }
+
+    return full;
 }
 
 async function chatOpenRouter(
