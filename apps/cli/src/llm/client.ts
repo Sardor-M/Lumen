@@ -63,15 +63,12 @@ export async function chatJson<T>(
     }
 }
 
-async function chatAnthropic(
-    apiKey: string,
-    model: string,
-    messages: ChatMessage[],
-    opts?: ChatOptions,
-): Promise<string> {
-    const client = new Anthropic({ apiKey });
-
-    const response = await client.messages.create({
+/**
+ * Shared builder for Anthropic request params — used by both streaming and
+ * non-streaming paths so cache_control, defaults, and option shaping stay in sync.
+ */
+function buildAnthropicParams(model: string, messages: ChatMessage[], opts?: ChatOptions) {
+    return {
         model,
         max_tokens: opts?.maxTokens ?? 4096,
         ...(opts?.temperature !== undefined ? { temperature: opts.temperature } : {}),
@@ -88,7 +85,17 @@ async function chatAnthropic(
               }
             : {}),
         messages: messages.map((m) => ({ role: m.role, content: m.content })),
-    });
+    };
+}
+
+async function chatAnthropic(
+    apiKey: string,
+    model: string,
+    messages: ChatMessage[],
+    opts?: ChatOptions,
+): Promise<string> {
+    const client = new Anthropic({ apiKey });
+    const response = await client.messages.create(buildAnthropicParams(model, messages, opts));
 
     const block = response.content[0];
     if (block.type !== 'text') throw new Error('Unexpected response type from Anthropic');
@@ -114,29 +121,19 @@ export async function chatAnthropicStream(
     const client = new Anthropic({ apiKey: config.llm.api_key! });
     let full = '';
 
-    const stream = client.messages.stream({
-        model: config.llm.model,
-        max_tokens: opts.maxTokens ?? 2048,
-        ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
-        ...(opts.system
-            ? {
-                  system: [
-                      {
-                          type: 'text' as const,
-                          text: opts.system,
-                          cache_control: { type: 'ephemeral' as const },
-                      },
-                  ],
-              }
-            : {}),
-        messages: messages.map((m) => ({ role: m.role, content: m.content })),
-    });
+    const stream = client.messages.stream(buildAnthropicParams(config.llm.model, messages, opts));
 
-    for await (const event of stream) {
-        if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
-            opts.onToken(event.delta.text);
-            full += event.delta.text;
+    try {
+        for await (const event of stream) {
+            if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+                opts.onToken(event.delta.text);
+                full += event.delta.text;
+            }
         }
+    } catch (err) {
+        /** Guarantee the cursor is on a new line before the caller prints an error. */
+        if (full.length > 0) process.stdout.write('\n');
+        throw err;
     }
 
     return full;
