@@ -5,9 +5,15 @@ import { getDb } from '../store/database.js';
 import { countSources, countSourcesByType, getSource } from '../store/sources.js';
 import { insertSource } from '../store/sources.js';
 import { countChunks, totalTokens, insertChunks } from '../store/chunks.js';
-import { countConcepts, getConcept, getConceptSources } from '../store/concepts.js';
+import {
+    countConcepts,
+    getConcept,
+    getConceptSources,
+    upsertConcept,
+    appendTimeline,
+} from '../store/concepts.js';
 import { countEdges, getEdgesFrom, getEdgesTo } from '../store/edges.js';
-import { addLink, getBackLinks, getLinksFrom, countLinks } from '../store/links.js';
+import { addLink, addBackLink, getBackLinks, getLinksFrom, countLinks } from '../store/links.js';
 import { routedSearch } from '../search/index.js';
 import { searchBm25 } from '../search/bm25.js';
 import { searchTfIdf } from '../search/tfidf.js';
@@ -19,6 +25,8 @@ import { pagerank } from '../graph/pagerank.js';
 import { detectCommunities } from '../graph/cluster.js';
 import { chat } from '../llm/client.js';
 import { QA_SYSTEM, qaUserPrompt } from '../llm/prompts/qa.js';
+import { toSlug } from '../utils/slug.js';
+import { invalidateProfile } from '../profile/invalidate.js';
 import { loadConfig } from '../utils/config.js';
 import { ingestInput } from '../ingest/file.js';
 import { sourceExists } from '../store/dedup.js';
@@ -667,8 +675,336 @@ export async function startMcpServer(): Promise<void> {
         },
     );
 
+    /** ─── Signal Capture (Phase 5) ─── */
+
+    server.tool(
+        'capture',
+        `Capture an idea, observation, fact, or entity mention into the knowledge base.
+Call this whenever the user expresses original thinking or when you encounter
+a notable fact about a concept. The brain grows automatically.`,
+        {
+            type: z
+                .enum(['idea', 'observation', 'fact', 'entity_mention'])
+                .describe('What kind of signal this is'),
+            title: z
+                .string()
+                .describe('Short name for this knowledge unit (becomes the concept slug)'),
+            content: z.string().describe('The exact phrasing to preserve — do not paraphrase'),
+            related_slugs: z
+                .array(z.string())
+                .optional()
+                .describe('Concept slugs this capture relates to — will be linked'),
+            source_context: z
+                .string()
+                .optional()
+                .describe(
+                    'Brief context: where this came from (e.g. "user said during search session")',
+                ),
+        },
+        async ({ type, title, content, related_slugs, source_context }) => {
+            const slug = toSlug(title);
+            const now = new Date().toISOString();
+
+            upsertConcept({
+                slug,
+                name: title,
+                summary: content,
+                compiled_truth: content,
+                article: null,
+                created_at: now,
+                updated_at: now,
+                mention_count: 1,
+            });
+
+            appendTimeline(slug, {
+                date: now.slice(0, 10),
+                source_id: null,
+                source_title: source_context ?? `Captured via MCP (${type})`,
+                event: `${type}: ${content.slice(0, 120)}`,
+                detail: content,
+            });
+
+            for (const related of related_slugs ?? []) {
+                if (getConcept(related)) {
+                    addBackLink(slug, related, content.slice(0, 200), null);
+                }
+            }
+
+            invalidateProfile();
+
+            return {
+                content: [
+                    {
+                        type: 'text' as const,
+                        text: JSON.stringify(
+                            { captured: true, slug, type, linked_to: related_slugs ?? [] },
+                            null,
+                            2,
+                        ),
+                    },
+                ],
+            };
+        },
+    );
+
+    server.tool(
+        'session_summary',
+        'Store a summary of what was discussed in this session as timeline entries on touched concepts.',
+        {
+            summary: z.string().describe('What was discussed and what was learned'),
+            concepts_touched: z
+                .array(z.string())
+                .optional()
+                .describe('Concept slugs that came up in the session'),
+        },
+        async ({ summary, concepts_touched }) => {
+            const today = new Date().toISOString().slice(0, 10);
+            let updated = 0;
+
+            for (const slug of concepts_touched ?? []) {
+                if (getConcept(slug)) {
+                    appendTimeline(slug, {
+                        date: today,
+                        source_id: null,
+                        source_title: `MCP session ${today}`,
+                        event: `Appeared in session: ${summary.slice(0, 100)}`,
+                        detail: summary,
+                    });
+                    updated++;
+                }
+            }
+
+            return {
+                content: [
+                    {
+                        type: 'text' as const,
+                        text: JSON.stringify({ stored: true, concepts_updated: updated }, null, 2),
+                    },
+                ],
+            };
+        },
+    );
+
+    /** ─── Brain Ops — single agent entry point (Phase 8) ─── */
+
+    server.tool(
+        'brain_ops',
+        `Brain-first lookup. Call this BEFORE answering any substantive question.
+Checks memory, routes by intent, returns context in one call.
+Agents should call this automatically — it is the entry point to the brain.`,
+        {
+            query: z.string().describe('The question or topic to check the brain for'),
+            intent: z
+                .enum(['search', 'concept', 'path', 'neighborhood'])
+                .optional()
+                .describe('Routing hint. Omit to auto-detect from query shape.'),
+            from: z.string().optional().describe('For path intent: starting concept slug'),
+            to: z.string().optional().describe('For path intent: ending concept slug'),
+        },
+        async ({ query, intent, from, to }) => {
+            const config = loadConfig();
+            const db = getDb();
+            const start = Date.now();
+
+            const resolvedIntent = intent ?? autoDetectBrainIntent(query);
+
+            /** ── Concept lookup ── */
+            if (resolvedIntent === 'concept') {
+                const raw = query
+                    .replace(/^(who|what) is\s+/i, '')
+                    .replace(/^(tell me about|explain|describe)\s+/i, '')
+                    .trim();
+                const slug = toSlug(raw);
+                const concept = getConcept(slug);
+                if (concept) {
+                    logQuery({
+                        tool_name: 'brain_ops',
+                        query_text: query,
+                        result_count: 1,
+                        latency_ms: Date.now() - start,
+                        session_id: sessionId,
+                    });
+                    return {
+                        content: [
+                            {
+                                type: 'text' as const,
+                                text: JSON.stringify(
+                                    {
+                                        found: true,
+                                        intent: 'concept',
+                                        slug: concept.slug,
+                                        name: concept.name,
+                                        compiled_truth: concept.compiled_truth ?? concept.summary,
+                                        mention_count: concept.mention_count,
+                                        outgoing_edges: getEdgesFrom(slug).slice(0, 8),
+                                        incoming_edges: getEdgesTo(slug).slice(0, 8),
+                                    },
+                                    null,
+                                    2,
+                                ),
+                            },
+                        ],
+                    };
+                }
+                /** Fall through to hybrid search if no exact concept match. */
+            }
+
+            /** ── Graph path ── */
+            if (resolvedIntent === 'path' && from && to) {
+                const pathResult = shortestPath(from, to);
+                logQuery({
+                    tool_name: 'brain_ops',
+                    query_text: query,
+                    result_count: pathResult ? 1 : 0,
+                    latency_ms: Date.now() - start,
+                    session_id: sessionId,
+                });
+                return {
+                    content: [
+                        {
+                            type: 'text' as const,
+                            text: JSON.stringify(
+                                { found: !!pathResult, intent: 'path', path: pathResult },
+                                null,
+                                2,
+                            ),
+                        },
+                    ],
+                };
+            }
+
+            /** ── Neighborhood ── */
+            if (resolvedIntent === 'neighborhood') {
+                const raw = query.replace(/^(related to|neighbors of|connected to)\s+/i, '').trim();
+                const slug = toSlug(raw);
+                const nb = neighborhood(slug, 2);
+                logQuery({
+                    tool_name: 'brain_ops',
+                    query_text: query,
+                    result_count: nb.nodes.size,
+                    latency_ms: Date.now() - start,
+                    session_id: sessionId,
+                });
+                return {
+                    content: [
+                        {
+                            type: 'text' as const,
+                            text: JSON.stringify(
+                                {
+                                    found: nb.nodes.size > 1,
+                                    intent: 'neighborhood',
+                                    center: slug,
+                                    node_count: nb.nodes.size > 1 ? nb.nodes.size - 1 : 0,
+                                    nodes: [...nb.nodes].filter((n) => n !== slug),
+                                    edges: nb.edges.slice(0, 20),
+                                },
+                                null,
+                                2,
+                            ),
+                        },
+                    ],
+                };
+            }
+
+            /** ── Default: BM25 + TF-IDF hybrid search ── */
+            const bm25 = searchBm25(query, 10);
+            const tfidf = searchTfIdf(query, 10);
+            const [vec] = await Promise.all([searchVector(query, config, 10)]);
+
+            const vectorEnabled = vec.length > 0;
+            const bm25w = vectorEnabled ? config.search.bm25_weight : 0.5;
+            const tfidfW = vectorEnabled ? config.search.tfidf_weight : 0.5;
+
+            const fused = fuseRrf(
+                [
+                    {
+                        name: 'bm25',
+                        weight: bm25w,
+                        results: bm25.map((r) => ({
+                            chunk_id: r.chunk_id,
+                            source_id: r.source_id,
+                            score: r.score,
+                        })),
+                    },
+                    {
+                        name: 'tfidf',
+                        weight: tfidfW,
+                        results: tfidf.map((r) => ({
+                            chunk_id: r.chunk_id,
+                            source_id: r.source_id,
+                            score: r.score,
+                        })),
+                    },
+                    ...(vectorEnabled
+                        ? [
+                              {
+                                  name: 'vector',
+                                  weight: config.search.vector_weight,
+                                  results: vec.map((r) => ({
+                                      chunk_id: r.chunk_id,
+                                      source_id: r.source_id,
+                                      score: r.score,
+                                  })),
+                              },
+                          ]
+                        : []),
+                ],
+                60,
+            ).slice(0, 5);
+
+            const results = fused.map((r) => {
+                const chunkRow = db
+                    .prepare('SELECT content, heading FROM chunks WHERE id = ?')
+                    .get(r.chunk_id) as { content: string; heading: string | null } | undefined;
+                return {
+                    chunk_id: r.chunk_id,
+                    source_id: r.source_id,
+                    source: getSource(r.source_id)?.title ?? r.source_id,
+                    heading: chunkRow?.heading ?? null,
+                    content: chunkRow?.content?.slice(0, 400) ?? '',
+                    score: r.rrf_score,
+                };
+            });
+
+            logQuery({
+                tool_name: 'brain_ops',
+                query_text: query,
+                result_count: results.length,
+                latency_ms: Date.now() - start,
+                session_id: sessionId,
+            });
+
+            return {
+                content: [
+                    {
+                        type: 'text' as const,
+                        text: JSON.stringify(
+                            {
+                                found: results.length > 0,
+                                intent: 'hybrid_search',
+                                result_count: results.length,
+                                results,
+                            },
+                            null,
+                            2,
+                        ),
+                    },
+                ],
+            };
+        },
+    );
+
     /** ─── Start server ─── */
 
     const transport = new StdioServerTransport();
     await server.connect(transport);
+}
+
+/** Deterministic intent detection for brain_ops — no LLM call needed. */
+function autoDetectBrainIntent(query: string): 'concept' | 'path' | 'neighborhood' | 'search' {
+    if (/^(who|what) is\s/i.test(query)) return 'concept';
+    if (/^(tell me about|explain|describe)\s/i.test(query)) return 'concept';
+    if (/path (from|between)|how.*(connect|relate|link)/i.test(query)) return 'path';
+    if (/(related to|neighbors of|connected to)\s/i.test(query)) return 'neighborhood';
+    return 'search';
 }
