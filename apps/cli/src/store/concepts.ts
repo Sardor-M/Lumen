@@ -1,5 +1,5 @@
 import { getDb } from './database.js';
-import type { Concept, SourceConcept, TimelineEntry } from '../types/index.js';
+import type { Concept, SourceConcept, TimelineEntry, EnrichmentTier } from '../types/index.js';
 import { invalidateProfile } from '../profile/invalidate.js';
 
 /** Parse the raw `timeline` JSON column into a typed array, newest first. */
@@ -25,11 +25,19 @@ function rowToConcept(row: Record<string, unknown>): Concept {
         created_at: row.created_at as string,
         updated_at: row.updated_at as string,
         mention_count: row.mention_count as number,
+        enrichment_tier: ((row.enrichment_tier as number) ?? 3) as EnrichmentTier,
+        last_enriched_at: (row.last_enriched_at as string | null) ?? null,
+        enrichment_queued: (row.enrichment_queued as number) ?? 0,
     };
 }
 
 export function upsertConcept(
-    concept: Omit<Concept, 'timeline'> & { timeline?: TimelineEntry[] },
+    concept: Omit<
+        Concept,
+        'timeline' | 'enrichment_tier' | 'last_enriched_at' | 'enrichment_queued'
+    > & {
+        timeline?: TimelineEntry[];
+    },
 ): void {
     getDb()
         .prepare(

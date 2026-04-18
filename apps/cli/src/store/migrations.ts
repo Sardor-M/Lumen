@@ -121,6 +121,15 @@ const migrations: Record<number, Migration> = {
             CREATE INDEX IF NOT EXISTS idx_fallbacks_classifier ON classifier_fallbacks(classifier_name);
         `);
     },
+
+    /** v9 — tiered entity enrichment: escalation tier, enrichment queue flag, last enriched timestamp. */
+    9: (db) => {
+        db.exec(`
+            ALTER TABLE concepts ADD COLUMN enrichment_tier   INTEGER NOT NULL DEFAULT 3;
+            ALTER TABLE concepts ADD COLUMN last_enriched_at  TEXT;
+            ALTER TABLE concepts ADD COLUMN enrichment_queued INTEGER NOT NULL DEFAULT 0;
+        `);
+    },
 };
 
 export function runMigrations(

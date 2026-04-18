@@ -6,8 +6,9 @@ import type Database from 'better-sqlite3';
  * v6 — compiled truth + timeline (compiled_truth, timeline columns on concepts)
  * v7 — link management (concept_links table with back-link support)
  * v8 — self-improving classifiers (classifier_patterns + classifier_fallbacks tables)
+ * v9 — tiered entity enrichment (enrichment_tier, last_enriched_at, enrichment_queued on concepts)
  */
-const CURRENT_VERSION = 8;
+const CURRENT_VERSION = 9;
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS sources (
@@ -73,7 +74,10 @@ const SCHEMA = `
     article TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    mention_count INTEGER NOT NULL DEFAULT 0
+    mention_count INTEGER NOT NULL DEFAULT 0,
+    enrichment_tier   INTEGER NOT NULL DEFAULT 3,
+    last_enriched_at  TEXT,
+    enrichment_queued INTEGER NOT NULL DEFAULT 0
   );
 
   CREATE TABLE IF NOT EXISTS edges (
