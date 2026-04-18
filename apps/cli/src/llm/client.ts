@@ -118,7 +118,13 @@ export async function chatAnthropicStream(
         return full;
     }
 
-    const client = new Anthropic({ apiKey: config.llm.api_key! });
+    if (!config.llm.api_key) {
+        throw new Error(
+            `No API key configured. Set ANTHROPIC_API_KEY or run: lumen config --api-key <key>`,
+        );
+    }
+
+    const client = new Anthropic({ apiKey: config.llm.api_key });
     let full = '';
 
     const stream = client.messages.stream(buildAnthropicParams(config.llm.model, messages, opts));
