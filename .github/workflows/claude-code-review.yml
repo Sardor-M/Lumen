@@ -74,19 +74,29 @@ jobs:
                   echo "$CHANGED_FILES"
 
                   : > /tmp/pr_context.txt
-                  MAX_TOTAL_LINES=3000
-                  MAX_FILE_LINES=300
+                  # CHANGED files get a generous cap so the reviewer sees helpers + exports
+                  # at the bottom of the file (missing them produces false-positive bug reports).
+                  # RELATED files are only for cross-referencing types/signatures — 200 is plenty.
+                  MAX_TOTAL_LINES=4000
+                  CHANGED_MAX=600
+                  RELATED_MAX=200
 
                   append_file() {
                     local path="$1"
                     local kind="$2"
+                    local limit="$3"
                     [ ! -f "$path" ] && return 0
                     local cur
                     cur=$(wc -l < /tmp/pr_context.txt | tr -d ' ')
                     if [ "$cur" -ge "$MAX_TOTAL_LINES" ]; then return 0; fi
+                    local total
+                    total=$(wc -l < "$path" | tr -d ' ')
                     {
                       printf '\n===== %s: %s =====\n' "$kind" "$path"
-                      head -n "$MAX_FILE_LINES" "$path"
+                      head -n "$limit" "$path"
+                      if [ "$total" -gt "$limit" ]; then
+                        printf '\n... [TRUNCATED: %d more lines below — do not flag missing identifiers without checking the raw file] ...\n' "$((total - limit))"
+                      fi
                     } >> /tmp/pr_context.txt
                   }
 
@@ -114,7 +124,7 @@ jobs:
                   while IFS= read -r f; do
                     [ -z "$f" ] && continue
                     SEEN["$f"]=1
-                    append_file "$f" "CHANGED"
+                    append_file "$f" "CHANGED" "$CHANGED_MAX"
                   done <<< "$CHANGED_FILES"
 
                   while IFS= read -r f; do
@@ -130,7 +140,7 @@ jobs:
                       resolved=$(resolve_import "$f" "$spec") || continue
                       [ "${SEEN[$resolved]:-0}" = "1" ] && continue
                       SEEN["$resolved"]=1
-                      append_file "$resolved" "RELATED"
+                      append_file "$resolved" "RELATED" "$RELATED_MAX"
                     done <<< "$IMPORTS"
                   done <<< "$CHANGED_FILES"
 
@@ -167,7 +177,7 @@ jobs:
                     '{
                       model: "claude-sonnet-4-6",
                       max_tokens: 1500,
-                      system: "Code reviewer for a TypeScript monorepo (Next.js 15 web + Node CLI + SQLite). FILE CONTEXT has full post-change files and direct imports — verify against it before flagging. Do not raise issues the context disproves. Do not invent issues.\n\nCheck: correctness, security, type safety, perf, error handling, API/contract breakage.\n\nOutput:\n### Summary — one paragraph, what + verdict.\n### Issues — for each: **Severity** (critical/major/minor), **File:line**, what is wrong with the offending snippet, suggested fix.\n### Nits (optional, ≤3 bullets).\nIf clean, say so briefly.",
+                      system: "Code reviewer for a TypeScript monorepo (Next.js 15 web + Node CLI + SQLite). FILE CONTEXT has post-change files and their direct imports — verify against it before flagging. Files may be truncated (marked with [TRUNCATED]); if so, assume the rest may define identifiers you do not see, and do not flag missing imports / undefined helpers unless the diff itself removes them. Do not raise issues the context disproves. Do not invent issues.\n\nCheck: correctness, security, type safety, perf, error handling, API/contract breakage.\n\nOutput:\n### Summary — one paragraph, what + verdict.\n### Issues — for each: **Severity** (critical/major/minor), **File:line**, what is wrong with the offending snippet, suggested fix.\n### Nits (optional, ≤3 bullets).\nIf clean, say so briefly.",
                       messages: [
                         {
                           role: "user",
