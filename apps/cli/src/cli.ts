@@ -26,7 +26,13 @@ import { registerEnrich } from './commands/enrich.js';
  */
 function loadEnvFiles(): void {
     const lumenDir = process.env.LUMEN_DIR || join(homedir(), '.lumen');
-    const candidates = [join(lumenDir, '.env'), join(process.cwd(), '.env')];
+    const defaultDir = join(homedir(), '.lumen');
+    /** Always check ~/.lumen/.env for API keys, even when LUMEN_DIR points elsewhere. */
+    const candidates = [
+        join(defaultDir, '.env'),
+        ...(lumenDir !== defaultDir ? [join(lumenDir, '.env')] : []),
+        join(process.cwd(), '.env'),
+    ];
     for (const p of candidates) {
         if (!existsSync(p)) continue;
         try {
