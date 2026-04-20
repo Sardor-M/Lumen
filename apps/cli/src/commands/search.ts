@@ -81,13 +81,15 @@ export function registerSearch(program: Command): void {
 
                     const db = getDb();
                     const budget = opts.budget ? parseInt(opts.budget) : 0;
-                    let limited = fused.slice(0, limit);
+                    let limited;
 
-                    /** If budget is set, keep adding results until token budget is filled. */
                     if (budget > 0) {
-                        const budgeted: typeof limited = [];
+                        /** Budget mode: scan the full fused list (not pre-sliced by -n)
+                         *  and pack results until the token budget is filled. This lets
+                         *  smaller lower-ranked chunks fit even if a top chunk is huge. */
+                        const budgeted: typeof fused = [];
                         let totalTokens = 0;
-                        for (const r of limited) {
+                        for (const r of fused) {
                             const row = db
                                 .prepare('SELECT token_count FROM chunks WHERE id = ?')
                                 .get(r.chunk_id) as { token_count: number } | undefined;
@@ -97,6 +99,8 @@ export function registerSearch(program: Command): void {
                             totalTokens += tokens;
                         }
                         limited = budgeted;
+                    } else {
+                        limited = fused.slice(0, limit);
                     }
 
                     const modeLabel = vectorEnabled ? 'BM25 + TF-IDF + vector' : 'BM25 + TF-IDF';

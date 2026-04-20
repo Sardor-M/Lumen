@@ -57,18 +57,13 @@ export function registerCompile(program: Command): void {
                     let totalConcepts = 0;
                     let totalEdges = 0;
                     let totalTokens = 0;
-                    let completed = 0;
 
-                    /** Process sources in a bounded concurrent pool. */
-                    const queue = [...sources];
-
-                    async function worker(): Promise<void> {
-                        while (queue.length > 0) {
-                            const src = queue.shift();
-                            if (!src) return;
-
-                            const idx = ++completed;
-                            log.info(`[${idx}/${sources.length}] ${src.title}`);
+                    /** Process sources via pre-partitioned index — each worker
+                     *  owns a fixed stride so no shared mutable queue is needed. */
+                    const workers = Array.from({ length: concurrency }, async (_, w) => {
+                        for (let i = w; i < sources.length; i += concurrency) {
+                            const src = sources[i];
+                            log.info(`[${i + 1}/${sources.length}] ${src.title}`);
 
                             try {
                                 const result = await compileSource(src.id, src.title, config);
@@ -85,9 +80,9 @@ export function registerCompile(program: Command): void {
                                 log.error(`  Failed: ${err instanceof Error ? err.message : err}`);
                             }
                         }
-                    }
+                    });
 
-                    await Promise.all(Array.from({ length: concurrency }, () => worker()));
+                    await Promise.all(workers);
 
                     console.log();
                     log.heading('Compilation Summary');

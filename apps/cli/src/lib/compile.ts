@@ -64,14 +64,13 @@ export async function compile(opts: CompileOptions = {}): Promise<CompileResult>
      *  invalidate the profile. Without batching: 2500+ SQL UPDATEs for
      *  100 sources. With batching: 1. */
     const concurrency = Math.max(1, opts.concurrency ?? 3);
-    const queue = [...sources];
 
     await withBatchedInvalidation(async () => {
-        async function worker(): Promise<void> {
-            while (queue.length > 0) {
-                const src = queue.shift();
-                if (!src) return;
-
+        /** Pre-partition sources by stride — each worker owns fixed indices,
+         *  no shared mutable queue needed. */
+        const workers = Array.from({ length: concurrency }, async (_, w) => {
+            for (let i = w; i < sources.length; i += concurrency) {
+                const src = sources[i];
                 try {
                     const result = await compileSource(src.id, src.title, config);
                     outcomes.push({ source_id: src.id, status: 'compiled', result });
@@ -87,9 +86,9 @@ export async function compile(opts: CompileOptions = {}): Promise<CompileResult>
                     });
                 }
             }
-        }
+        });
 
-        await Promise.all(Array.from({ length: concurrency }, () => worker()));
+        await Promise.all(workers);
 
         const compiledCount = outcomes.filter((o) => o.status === 'compiled').length;
         if (compiledCount > 0) invalidateProfile();

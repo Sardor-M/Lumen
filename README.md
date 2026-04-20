@@ -10,6 +10,35 @@ Everything runs on your machine. One SQLite file. No cloud, no server, no syncin
 
 ---
 
+## Architecture
+
+```
+    INGEST              CHUNK               STORE              SEARCH
+    ------              -----               -----              ------
+
+  URL     -+          +- Markdown         +- Sources         +- BM25 (FTS5)
+  PDF     -|          |                   |                  |
+  YouTube -+- Extract +- HTML        -->  +- Chunks    -->   +- TF-IDF
+  arXiv   -|          |                   |                  |
+  File    -|          +- Plain text       +- Concepts        +- Vector ANN
+  Dir     -+                              +- Edges           |
+                                          +- Links           +- Graph walk
+                                          +- Embeddings            |
+                                                                    v
+    COMPILE             ENRICH              GRAPH            RRF Fusion
+    -------             ------              -----          (3-signal merge)
+                                                                   |
+  LLM extracts       Tier scoring        PageRank            Budget cut
+  concepts +         escalates           Path finding              |
+  compiled truth     stubs ->            Community            Ranked chunks
+  + timeline         rich pages          detection                 |
+  per source         via LLM             Visualization             v
+  (3 parallel)                                               LLM synthesis
+                                                              (streaming)
+```
+
+---
+
 ## What it looks like in practice
 
 ```bash
@@ -174,31 +203,6 @@ The `capture` MCP tool writes the other direction — from conversation to graph
 ---
 
 ## How it works
-
-```
-    INGEST              CHUNK               STORE              SEARCH
-    ------              -----               -----              ------
-
-  URL     -+          +- Markdown         +- Sources         +- BM25 (FTS5)
-  PDF     -|          |                   |                  |
-  YouTube -+- Extract +- HTML        -->  +- Chunks    -->   +- TF-IDF
-  arXiv   -|          |                   |                  |
-  File    -|          +- Plain text       +- Concepts        +- Vector ANN
-  Dir     -+                              +- Edges           |
-                                          +- Links           +- Graph walk
-                                          +- Embeddings            |
-                                                                    v
-    COMPILE             ENRICH              GRAPH            RRF Fusion
-    -------             ------              -----          (3-signal merge)
-                                                                   |
-  LLM extracts       Tier scoring        PageRank            Budget cut
-  concepts +         escalates           Path finding              |
-  compiled truth     stubs ->            Community            Ranked chunks
-  + timeline         rich pages          detection                 |
-  per source         via LLM             Visualization             v
-  (3 parallel)                                               LLM synthesis
-                                                              (streaming)
-```
 
 **Ingestion** — no LLM needed. URL scraping via `@extractus/article-extractor`, PDF via `pdf-parse`, YouTube transcripts via the Innertube captions API, arXiv via Atom + PDF. SHA-256 deduplication so the same quote across five sources costs one row.
 
