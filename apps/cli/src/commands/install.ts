@@ -271,13 +271,23 @@ function installClaude(cwd: string): void {
             PreToolUse: [
                 {
                     matcher: 'Glob|Grep',
-                    command: join('.claude', 'hooks', 'lumen-pretool.sh'),
+                    hooks: [
+                        {
+                            type: 'command' as const,
+                            command: join('.claude', 'hooks', 'lumen-pretool.sh'),
+                        },
+                    ],
                 },
             ],
             Stop: [
                 {
-                    matcher: '.*',
-                    command: join('.claude', 'hooks', 'lumen-signal.sh'),
+                    matcher: '',
+                    hooks: [
+                        {
+                            type: 'command' as const,
+                            command: join('.claude', 'hooks', 'lumen-signal.sh'),
+                        },
+                    ],
                 },
             ],
         },
@@ -285,12 +295,14 @@ function installClaude(cwd: string): void {
 
     if (existsSync(settingsPath)) {
         const existing = JSON.parse(readFileSync(settingsPath, 'utf-8'));
-        const alreadyHasPreTool = existing.hooks?.PreToolUse?.some((h: { command: string }) =>
-            h.command.includes('lumen'),
-        );
-        const alreadyHasStop = existing.hooks?.Stop?.some((h: { command: string }) =>
-            h.command.includes('lumen'),
-        );
+        const hasLumenHook = (entries: unknown[]): boolean =>
+            Array.isArray(entries) &&
+            entries.some(
+                (e: unknown) =>
+                    typeof e === 'object' && e !== null && JSON.stringify(e).includes('lumen'),
+            );
+        const alreadyHasPreTool = hasLumenHook(existing.hooks?.PreToolUse ?? []);
+        const alreadyHasStop = hasLumenHook(existing.hooks?.Stop ?? []);
 
         if (!alreadyHasPreTool || !alreadyHasStop) {
             existing.hooks = existing.hooks ?? {};
