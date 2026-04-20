@@ -93,12 +93,12 @@ export async function compile(opts: CompileOptions = {}): Promise<CompileResult>
         });
 
         await Promise.all(workers);
+
+        const compiledCount = outcomes.filter((o) => o.status === 'compiled').length;
+        if (compiledCount > 0) invalidateProfile();
     });
 
-    /** Invalidate after withBatchedInvalidation completes — outcomes
-     *  is fully populated at this point regardless of errors inside. */
     const compiledCount = outcomes.filter((o) => o.status === 'compiled').length;
-    if (compiledCount > 0) invalidateProfile();
     const failedCount = outcomes.length - compiledCount;
 
     let reportPath: string | null = null;

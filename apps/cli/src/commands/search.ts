@@ -80,7 +80,10 @@ export function registerSearch(program: Command): void {
                     }
 
                     const db = getDb();
-                    const budget = opts.budget ? parseInt(opts.budget) : 0;
+                    const budget = opts.budget ? parseInt(opts.budget, 10) : 0;
+                    if (opts.budget && (isNaN(budget) || budget <= 0)) {
+                        log.warn(`Invalid budget "${opts.budget}", ignoring`);
+                    }
                     let limited;
 
                     if (budget > 0) {
