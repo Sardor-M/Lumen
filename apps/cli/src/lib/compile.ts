@@ -64,9 +64,11 @@ export async function compile(opts: CompileOptions = {}): Promise<CompileResult>
     let totalTokens = 0;
 
     /** Batch the whole compile loop so profile invalidation fires once,
-     *  not per-source. Accumulators are safe under Node's cooperative
-     *  multitasking: only one microtask runs at a time between await
-     *  points, so += and push never interleave mid-operation. */
+     *  not per-source. Accumulators (+=, push) are safe because JS is
+     *  single-threaded: each += is a synchronous read-modify-write with
+     *  no await between the read and the write, so concurrent workers
+     *  cannot interleave mid-operation. Workers yield only at await
+     *  boundaries (the compileSource network call), never inside +=. */
     const concurrency = Math.min(Math.max(1, opts.concurrency ?? 3), sources.length || 1);
 
     await withBatchedInvalidation(async () => {
