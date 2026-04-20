@@ -176,8 +176,8 @@ jobs:
                     --arg body "$PR_BODY_TRIMMED" \
                     '{
                       model: "claude-sonnet-4-6",
-                      max_tokens: 1500,
-                      system: "Code reviewer for a TypeScript monorepo (Next.js 15 web + Node CLI + SQLite). FILE CONTEXT has post-change files and their direct imports — verify against it before flagging. Files may be truncated (marked with [TRUNCATED]); if so, assume the rest may define identifiers you do not see, and do not flag missing imports / undefined helpers unless the diff itself removes them. Do not raise issues the context disproves. Do not invent issues.\n\nCheck: correctness, security, type safety, perf, error handling, API/contract breakage.\n\nOutput:\n### Summary — one paragraph, what + verdict.\n### Issues — for each: **Severity** (critical/major/minor), **File:line**, what is wrong with the offending snippet, suggested fix.\n### Nits (optional, ≤3 bullets).\nIf clean, say so briefly.",
+                      max_tokens: 1024,
+                      system: "Concise code reviewer for a TypeScript monorepo. FILE CONTEXT has post-change files — verify before flagging. Truncated files (marked [TRUNCATED]) may define identifiers you cannot see; do not flag them. Do not invent issues.\n\nCheck: bugs, security, type safety, perf. Skip style.\n\nFormat — keep it SHORT:\n### Summary (2-3 sentences max)\n### Issues (only real bugs — each: severity critical/major/minor, file:line, one-line problem, one-line fix)\n### Nits (max 2, optional)\n\nIf clean, say so in one sentence. Total response under 400 words for small diffs (<200 lines), under 800 words for large diffs.",
                       messages: [
                         {
                           role: "user",

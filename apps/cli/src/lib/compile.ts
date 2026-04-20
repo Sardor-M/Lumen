@@ -15,6 +15,8 @@ export type CompileOptions = {
     writeReport?: boolean;
     /** Max sources to compile in parallel. Default 3. */
     concurrency?: number;
+    /** Override LLM model for this compile run. */
+    model?: string;
 };
 
 export type PerSourceOutcome =
@@ -51,6 +53,8 @@ export async function compile(opts: CompileOptions = {}): Promise<CompileResult>
         );
     }
 
+    if (opts.model) config.llm.model = opts.model;
+
     const sources = selectSources(opts);
 
     const outcomes: PerSourceOutcome[] = [];
@@ -59,15 +63,13 @@ export async function compile(opts: CompileOptions = {}): Promise<CompileResult>
     let totalEdges = 0;
     let totalTokens = 0;
 
-    /** Batch the whole compile loop. Each source's LLM pass can upsert many
-     *  concepts + edges + call markCompiled(), all of which individually
-     *  invalidate the profile. Without batching: 2500+ SQL UPDATEs for
-     *  100 sources. With batching: 1. */
-    const concurrency = Math.max(1, opts.concurrency ?? 3);
+    /** Batch the whole compile loop so profile invalidation fires once,
+     *  not per-source. Accumulators are safe under Node's cooperative
+     *  multitasking: only one microtask runs at a time between await
+     *  points, so += and push never interleave mid-operation. */
+    const concurrency = Math.min(Math.max(1, opts.concurrency ?? 3), sources.length || 1);
 
     await withBatchedInvalidation(async () => {
-        /** Pre-partition sources by stride — each worker owns fixed indices,
-         *  no shared mutable queue needed. */
         const workers = Array.from({ length: concurrency }, async (_, w) => {
             for (let i = w; i < sources.length; i += concurrency) {
                 const src = sources[i];
@@ -89,12 +91,12 @@ export async function compile(opts: CompileOptions = {}): Promise<CompileResult>
         });
 
         await Promise.all(workers);
-
-        const compiledCount = outcomes.filter((o) => o.status === 'compiled').length;
-        if (compiledCount > 0) invalidateProfile();
     });
 
+    /** Invalidate after withBatchedInvalidation completes — outcomes
+     *  is fully populated at this point regardless of errors inside. */
     const compiledCount = outcomes.filter((o) => o.status === 'compiled').length;
+    if (compiledCount > 0) invalidateProfile();
     const failedCount = outcomes.length - compiledCount;
 
     let reportPath: string | null = null;

@@ -42,12 +42,16 @@ export function registerCompile(program: Command): void {
                         return;
                     }
 
-                    const concurrency = Math.max(1, parseInt(opts.concurrency) || 3);
-
-                    /** Override model if --model flag is set. */
+                    /** Override model before any LLM calls. */
                     if (opts.model) {
                         config.llm.model = opts.model;
                     }
+
+                    /** Cap workers to actual source count to avoid empty workers. */
+                    const concurrency = Math.min(
+                        Math.max(1, parseInt(opts.concurrency) || 3),
+                        sources.length,
+                    );
 
                     log.heading(
                         `Compiling ${sources.length} source${sources.length === 1 ? '' : 's'}` +

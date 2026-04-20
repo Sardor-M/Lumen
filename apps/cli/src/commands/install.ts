@@ -345,6 +345,7 @@ function installClaude(cwd: string): void {
             ],
             Stop: [
                 {
+                    /** Empty string = match all events (Claude Code v2.1+ convention). */
                     matcher: '',
                     hooks: [
                         {

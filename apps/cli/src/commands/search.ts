@@ -89,10 +89,11 @@ export function registerSearch(program: Command): void {
                          *  smaller lower-ranked chunks fit even if a top chunk is huge. */
                         const budgeted: typeof fused = [];
                         let totalTokens = 0;
+                        const tokenStmt = db.prepare('SELECT token_count FROM chunks WHERE id = ?');
                         for (const r of fused) {
-                            const row = db
-                                .prepare('SELECT token_count FROM chunks WHERE id = ?')
-                                .get(r.chunk_id) as { token_count: number } | undefined;
+                            const row = tokenStmt.get(r.chunk_id) as
+                                | { token_count: number }
+                                | undefined;
                             const tokens = row?.token_count ?? 100;
                             if (totalTokens + tokens > budget && budgeted.length > 0) break;
                             budgeted.push(r);
