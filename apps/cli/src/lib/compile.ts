@@ -13,6 +13,10 @@ export type CompileOptions = {
     sourceIds?: string[];
     /** Also write GRAPH_REPORT.md after compilation. Default false. */
     writeReport?: boolean;
+    /** Max sources to compile in parallel. Default 3. */
+    concurrency?: number;
+    /** Override LLM model for this compile run. */
+    model?: string;
 };
 
 export type PerSourceOutcome =
@@ -49,6 +53,8 @@ export async function compile(opts: CompileOptions = {}): Promise<CompileResult>
         );
     }
 
+    if (opts.model) config.llm.model = opts.model;
+
     const sources = selectSources(opts);
 
     const outcomes: PerSourceOutcome[] = [];
@@ -57,31 +63,37 @@ export async function compile(opts: CompileOptions = {}): Promise<CompileResult>
     let totalEdges = 0;
     let totalTokens = 0;
 
-    /** Batch the whole compile loop. Each source's LLM pass can upsert many
-     *  concepts + edges + call markCompiled(), all of which individually
-     *  invalidate the profile. Without batching: 2500+ SQL UPDATEs for
-     *  100 sources. With batching: 1. */
-    await withBatchedInvalidation(async () => {
-        for (const src of sources) {
-            try {
-                const result = await compileSource(src.id, src.title, config);
-                outcomes.push({ source_id: src.id, status: 'compiled', result });
-                totalCreated += result.concepts_created.length;
-                totalUpdated += result.concepts_updated.length;
-                totalEdges += result.edges_created;
-                totalTokens += result.tokens_used;
-            } catch (err) {
-                outcomes.push({
-                    source_id: src.id,
-                    status: 'failed',
-                    error: err instanceof Error ? err.message : String(err),
-                });
-            }
-        }
+    /** Batch the whole compile loop so profile invalidation fires once,
+     *  not per-source. Accumulators (+=, push) are safe because JS is
+     *  single-threaded: each += is a synchronous read-modify-write with
+     *  no await between the read and the write, so concurrent workers
+     *  cannot interleave mid-operation. Workers yield only at await
+     *  boundaries (the compileSource network call), never inside +=. */
+    const concurrency = Math.min(Math.max(1, opts.concurrency ?? 3), sources.length || 1);
 
-        /** Any successful compile already set pendingInvalidation via the
-         *  store-level invalidate calls — explicit fire keeps semantics
-         *  clear when zero sources compiled (no-op there too). */
+    await withBatchedInvalidation(async () => {
+        const workers = Array.from({ length: concurrency }, async (_, w) => {
+            for (let i = w; i < sources.length; i += concurrency) {
+                const src = sources[i];
+                try {
+                    const result = await compileSource(src.id, src.title, config);
+                    outcomes.push({ source_id: src.id, status: 'compiled', result });
+                    totalCreated += result.concepts_created.length;
+                    totalUpdated += result.concepts_updated.length;
+                    totalEdges += result.edges_created;
+                    totalTokens += result.tokens_used;
+                } catch (err) {
+                    outcomes.push({
+                        source_id: src.id,
+                        status: 'failed',
+                        error: err instanceof Error ? err.message : String(err),
+                    });
+                }
+            }
+        });
+
+        await Promise.all(workers);
+
         const compiledCount = outcomes.filter((o) => o.status === 'compiled').length;
         if (compiledCount > 0) invalidateProfile();
     });

@@ -19,3 +19,5 @@ next-env.d.ts
 *.tsbuildinfo
 
 /docs/docs_analysis_in_depth
+
+/test-benchmarks

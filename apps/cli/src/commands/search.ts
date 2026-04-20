@@ -12,107 +12,138 @@ export function registerSearch(program: Command): void {
         .command('search <query>')
         .description('Hybrid search via BM25 + TF-IDF + vector with RRF fusion')
         .option('-n, --limit <n>', 'Max results', '10')
+        .option('-b, --budget <tokens>', 'Token budget for results (default: unlimited for search)')
         .option('--bm25-only', 'Use only BM25 (skip TF-IDF and vector)')
-        .action(async (query: string, opts: { limit: string; bm25Only?: boolean }) => {
-            try {
-                const config = loadConfig();
-                getDb();
-                const limit = parseInt(opts.limit) || config.search.max_results;
+        .action(
+            async (query: string, opts: { limit: string; budget?: string; bm25Only?: boolean }) => {
+                try {
+                    const config = loadConfig();
+                    getDb();
+                    const limit = parseInt(opts.limit) || config.search.max_results;
 
-                if (opts.bm25Only) {
-                    const results = searchBm25(query, limit);
-                    printResults(query, results, 'BM25');
-                    return;
+                    if (opts.bm25Only) {
+                        const results = searchBm25(query, limit);
+                        printResults(query, results, 'BM25');
+                        return;
+                    }
+
+                    /** Run all available signals in parallel. */
+                    const [bm25Results, tfidfResults, vectorResults] = await Promise.all([
+                        Promise.resolve(searchBm25(query, limit * 2)),
+                        Promise.resolve(searchTfIdf(query, limit * 2)),
+                        searchVector(query, config, limit * 2),
+                    ]);
+
+                    const vectorEnabled = vectorResults.length > 0;
+                    const bm25w = vectorEnabled ? config.search.bm25_weight : 0.5;
+                    const tfidfW = vectorEnabled ? config.search.tfidf_weight : 0.5;
+
+                    const signals = [
+                        {
+                            name: 'bm25',
+                            weight: bm25w,
+                            results: bm25Results.map((r) => ({
+                                chunk_id: r.chunk_id,
+                                source_id: r.source_id,
+                                score: r.score,
+                            })),
+                        },
+                        {
+                            name: 'tfidf',
+                            weight: tfidfW,
+                            results: tfidfResults.map((r) => ({
+                                chunk_id: r.chunk_id,
+                                source_id: r.source_id,
+                                score: r.score,
+                            })),
+                        },
+                        ...(vectorEnabled
+                            ? [
+                                  {
+                                      name: 'vector',
+                                      weight: config.search.vector_weight,
+                                      results: vectorResults.map((r) => ({
+                                          chunk_id: r.chunk_id,
+                                          source_id: r.source_id,
+                                          score: r.score,
+                                      })),
+                                  },
+                              ]
+                            : []),
+                    ];
+
+                    const fused = fuseRrf(signals, 60);
+
+                    if (fused.length === 0) {
+                        log.warn(`No results for "${query}"`);
+                        return;
+                    }
+
+                    const db = getDb();
+                    const budget = opts.budget ? parseInt(opts.budget, 10) : 0;
+                    if (opts.budget && (isNaN(budget) || budget <= 0)) {
+                        log.warn(`Invalid budget "${opts.budget}", ignoring`);
+                    }
+                    let limited;
+
+                    if (budget > 0) {
+                        /** Budget mode: scan the full fused list (not pre-sliced by -n)
+                         *  and pack results until the token budget is filled. This lets
+                         *  smaller lower-ranked chunks fit even if a top chunk is huge. */
+                        const budgeted: typeof fused = [];
+                        let totalTokens = 0;
+                        const tokenStmt = db.prepare('SELECT token_count FROM chunks WHERE id = ?');
+                        for (const r of fused) {
+                            const row = tokenStmt.get(r.chunk_id) as
+                                | { token_count: number }
+                                | undefined;
+                            const tokens = row?.token_count ?? 100;
+                            if (totalTokens + tokens > budget && budgeted.length > 0) break;
+                            budgeted.push(r);
+                            totalTokens += tokens;
+                        }
+                        limited = budgeted;
+                    } else {
+                        limited = fused.slice(0, limit);
+                    }
+
+                    const modeLabel = vectorEnabled ? 'BM25 + TF-IDF + vector' : 'BM25 + TF-IDF';
+
+                    log.heading(`Search results for "${query}"`);
+                    log.dim(
+                        `${limited.length} result${limited.length === 1 ? '' : 's'} (${modeLabel})\n`,
+                    );
+
+                    for (let i = 0; i < limited.length; i++) {
+                        const r = limited[i];
+                        const chunk = db
+                            .prepare('SELECT content, heading FROM chunks WHERE id = ?')
+                            .get(r.chunk_id) as
+                            | { content: string; heading: string | null }
+                            | undefined;
+                        const source = db
+                            .prepare('SELECT title FROM sources WHERE id = ?')
+                            .get(r.source_id) as { title: string } | undefined;
+
+                        const title = source?.title ?? r.source_id;
+                        const heading = chunk?.heading ? ` > ${chunk.heading}` : '';
+                        const snippet = makeSnippet(chunk?.content ?? '', query);
+                        const score = (r.rrf_score * 1000).toFixed(1);
+                        const signals_str = Object.entries(r.signals)
+                            .map(([k, v]) => `${k}:${(v * 100).toFixed(0)}%`)
+                            .join(' ');
+
+                        console.log(`  ${i + 1}. [${score}] ${title}${heading}`);
+                        console.log(`     ${snippet}`);
+                        log.dim(`     signals: ${signals_str}`);
+                        console.log();
+                    }
+                } catch (err) {
+                    log.error(err instanceof Error ? err.message : String(err));
+                    process.exitCode = 1;
                 }
-
-                /** Run all available signals in parallel. */
-                const [bm25Results, tfidfResults, vectorResults] = await Promise.all([
-                    Promise.resolve(searchBm25(query, limit * 2)),
-                    Promise.resolve(searchTfIdf(query, limit * 2)),
-                    searchVector(query, config, limit * 2),
-                ]);
-
-                const vectorEnabled = vectorResults.length > 0;
-                const bm25w = vectorEnabled ? config.search.bm25_weight : 0.5;
-                const tfidfW = vectorEnabled ? config.search.tfidf_weight : 0.5;
-
-                const signals = [
-                    {
-                        name: 'bm25',
-                        weight: bm25w,
-                        results: bm25Results.map((r) => ({
-                            chunk_id: r.chunk_id,
-                            source_id: r.source_id,
-                            score: r.score,
-                        })),
-                    },
-                    {
-                        name: 'tfidf',
-                        weight: tfidfW,
-                        results: tfidfResults.map((r) => ({
-                            chunk_id: r.chunk_id,
-                            source_id: r.source_id,
-                            score: r.score,
-                        })),
-                    },
-                    ...(vectorEnabled
-                        ? [
-                              {
-                                  name: 'vector',
-                                  weight: config.search.vector_weight,
-                                  results: vectorResults.map((r) => ({
-                                      chunk_id: r.chunk_id,
-                                      source_id: r.source_id,
-                                      score: r.score,
-                                  })),
-                              },
-                          ]
-                        : []),
-                ];
-
-                const fused = fuseRrf(signals, 60);
-
-                if (fused.length === 0) {
-                    log.warn(`No results for "${query}"`);
-                    return;
-                }
-
-                const db = getDb();
-                const limited = fused.slice(0, limit);
-                const modeLabel = vectorEnabled ? 'BM25 + TF-IDF + vector' : 'BM25 + TF-IDF';
-
-                log.heading(`Search results for "${query}"`);
-                log.dim(
-                    `${limited.length} result${limited.length === 1 ? '' : 's'} (${modeLabel})\n`,
-                );
-
-                for (let i = 0; i < limited.length; i++) {
-                    const r = limited[i];
-                    const chunk = db
-                        .prepare('SELECT content, heading FROM chunks WHERE id = ?')
-                        .get(r.chunk_id) as { content: string; heading: string | null } | undefined;
-                    const source = db
-                        .prepare('SELECT title FROM sources WHERE id = ?')
-                        .get(r.source_id) as { title: string } | undefined;
-
-                    const title = source?.title ?? r.source_id;
-                    const heading = chunk?.heading ? ` > ${chunk.heading}` : '';
-                    const snippet = makeSnippet(chunk?.content ?? '', query);
-                    const score = (r.rrf_score * 1000).toFixed(1);
-                    const signals_str = Object.entries(r.signals)
-                        .map(([k, v]) => `${k}:${(v * 100).toFixed(0)}%`)
-                        .join(' ');
-
-                    console.log(`  ${i + 1}. [${score}] ${title}${heading}`);
-                    console.log(`     ${snippet}`);
-                    log.dim(`     signals: ${signals_str}`);
-                    console.log();
-                }
-            } catch (err) {
-                log.error(err instanceof Error ? err.message : String(err));
-                process.exitCode = 1;
-            }
-        });
+            },
+        );
 }
 
 function printResults(

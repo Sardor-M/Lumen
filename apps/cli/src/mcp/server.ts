@@ -654,6 +654,56 @@ export async function startMcpServer(): Promise<void> {
         },
     );
 
+    /** ─── Compile ─── */
+
+    server.tool(
+        'compile',
+        `Compile unprocessed sources into concepts and edges via LLM.
+Call this after ingesting new sources with "add" to extract knowledge graph nodes.
+Without compilation, ingested content is searchable but won't appear in the concept graph.`,
+        {
+            all: z
+                .boolean()
+                .optional()
+                .describe('Recompile all sources, not just unprocessed (default: false)'),
+        },
+        async ({ all }) => {
+            try {
+                const { compile } = await import('../lib/compile.js');
+                const result = await compile({
+                    all: all ?? false,
+                    writeReport: true,
+                    concurrency: 3,
+                });
+                return {
+                    content: [
+                        {
+                            type: 'text' as const,
+                            text: JSON.stringify({
+                                sources_compiled: result.sources_compiled,
+                                sources_failed: result.sources_failed,
+                                concepts_created: result.concepts_created,
+                                concepts_updated: result.concepts_updated,
+                                edges_created: result.edges_created,
+                                tokens_used: result.tokens_used,
+                            }),
+                        },
+                    ],
+                };
+            } catch (err) {
+                return {
+                    content: [
+                        {
+                            type: 'text' as const,
+                            text: `Compilation failed: ${err instanceof Error ? err.message : String(err)}`,
+                        },
+                    ],
+                    isError: true,
+                };
+            }
+        },
+    );
+
     /** ─── Profile ─── */
 
     server.tool(

@@ -6,7 +6,7 @@ const DEFAULT_CONFIG: LumenConfig = {
     data_dir: '~/.lumen',
     llm: {
         provider: 'anthropic',
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         api_key: null,
         base_url: null,
     },

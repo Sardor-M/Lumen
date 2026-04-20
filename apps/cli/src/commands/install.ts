@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { Command } from 'commander';
 import * as log from '../utils/logger.js';
@@ -49,9 +50,11 @@ On every substantive question or research task:
 
 1. Call \`brain_ops\` with the core topic of the question.
 2. If results exist — use them as grounding context in your answer.
-3. Say "not in your knowledge base yet" only when \`brain_ops\` returns \`found: false\`.
+3. **Always cite the source name** when using KB content. Format: [Source: title] at the end of each claim grounded in the KB. The source title comes from the \`source_title\` field in search results.
+4. Say "not in your knowledge base yet" only when \`brain_ops\` returns \`found: false\`.
 
 Never answer a knowledge question from training alone. Always check first.
+Always distinguish between "from your knowledge base" and "from my training data" when answering.
 
 Intent shortcuts — call the right tool directly:
 
@@ -61,7 +64,8 @@ Intent shortcuts — call the right tool directly:
 | "how does X connect to Y" / "path from X to Y" | \`brain_ops\` with intent \`path\`, from + to filled |
 | "what is related to X" / "neighbors of X" | \`brain_ops\` with intent \`neighborhood\` |
 | "what are my main topics" / "top concepts" | \`god_nodes\` then \`communities\` |
-| "add this URL / file / paper" | \`add\` — ingest immediately, no confirmation needed |
+| "add this URL / file / paper" | \`add\` — ingest immediately, then call \`compile\` to extract concepts |
+| "compile" / "extract concepts" | \`compile\` — runs LLM extraction on unprocessed sources |
 | "remember this" / "capture this" / "save this" | \`capture\` with the user's exact phrasing |
 
 ## Step 2 — Passive signal capture (after responding)
@@ -91,6 +95,7 @@ When a long conversation ends (user says "thanks", "bye", or closes topic), call
 | \`capture\` | After any response that contains new knowledge |
 | \`session_summary\` | When a session ends |
 | \`add\` | When user provides a URL, file, or content to ingest |
+| \`compile\` | After \`add\` — extracts concepts and edges from new sources via LLM |
 | \`search\` | Direct keyword search when brain_ops is too broad |
 | \`concept\` | Get full compiled truth + timeline for a specific concept |
 | \`backlinks\` | Find what else references a concept |
@@ -126,6 +131,45 @@ fi
 `;
 }
 
+/** Content for CLAUDE.md — mandatory brain-first instructions loaded every message. */
+function claudeMdContent(): string {
+    return `# Lumen Brain Protocol
+
+You have a persistent knowledge brain available via the \`lumen\` MCP server.
+
+## MANDATORY: Check brain BEFORE answering
+
+On EVERY question — before using web search, before answering from training data:
+
+1. Call \`brain_ops\` (or \`search\`) via the lumen MCP server with the core topic.
+2. If results exist, use them as your PRIMARY source. Cite as \`[Source: title]\`.
+3. Only say "not in your knowledge base" when brain_ops returns \`found: false\` or search returns 0 results.
+4. Only use web search or training data AFTER checking the brain and finding nothing.
+
+**Never answer a knowledge question from training data alone without checking the brain first.**
+
+When answering, always distinguish:
+- "From your knowledge base: ..." (grounded in lumen search/brain_ops results)
+- "From my training data: ..." (when the brain had nothing)
+
+## Tool routing
+
+| User intent | Tool to call |
+|---|---|
+| Any knowledge question | \`brain_ops\` FIRST, then answer |
+| "who is X" / "what is X" | \`brain_ops\` with intent \`concept\` |
+| "how does X connect to Y" | \`brain_ops\` with intent \`path\` |
+| "what is related to X" | \`brain_ops\` with intent \`neighborhood\` |
+| "top concepts" / "main topics" | \`god_nodes\` then \`communities\` |
+| "add this URL / paper" | \`add\`, then \`compile\` |
+| "remember this" / "save this" | \`capture\` |
+
+## After responding
+
+If the conversation contained new knowledge (original ideas, notable facts, entity mentions), call \`capture\` to persist it to the brain.
+`;
+}
+
 /** Content for the AGENTS.md file (Codex integration). */
 function agentsMdContent(): string {
     return `# Lumen Knowledge Base
@@ -152,13 +196,16 @@ Run \`lumen --mcp\` to start the MCP server over stdio.
 `;
 }
 
-/** MCP config JSON for .mcp.json. */
+/** MCP config JSON for .mcp.json. Passes LUMEN_DIR so the MCP server
+ *  connects to the same workspace the user compiled against. */
 function mcpConfig(): { mcpServers: Record<string, unknown> } {
+    const lumenDir = process.env.LUMEN_DIR || join(homedir(), '.lumen');
     return {
         mcpServers: {
             lumen: {
                 command: 'lumen',
                 args: ['--mcp'],
+                env: { LUMEN_DIR: lumenDir },
             },
         },
     };
@@ -237,7 +284,24 @@ function installClaude(cwd: string): void {
         created++;
     }
 
-    /** 2. Write skill */
+    /** 2a. Write CLAUDE.md — mandatory brain-first instructions (always in context). */
+    const claudeMdPath = join(cwd, 'CLAUDE.md');
+    if (!existsSync(claudeMdPath)) {
+        writeFileSync(claudeMdPath, claudeMdContent(), 'utf-8');
+        log.success('Created CLAUDE.md with brain-first protocol');
+        created++;
+    } else {
+        const existing = readFileSync(claudeMdPath, 'utf-8');
+        if (!existing.includes('brain_ops')) {
+            writeFileSync(claudeMdPath, existing + '\n' + claudeMdContent(), 'utf-8');
+            log.success('Appended brain-first protocol to CLAUDE.md');
+            created++;
+        } else {
+            log.dim('CLAUDE.md already has brain-first protocol');
+        }
+    }
+
+    /** 2b. Write skill (supplementary — CLAUDE.md is the primary instruction). */
     const skillDir = join(cwd, '.claude', 'skills', 'lumen');
     const skillPath = join(skillDir, 'skill.md');
     if (!existsSync(skillDir)) {
@@ -271,13 +335,24 @@ function installClaude(cwd: string): void {
             PreToolUse: [
                 {
                     matcher: 'Glob|Grep',
-                    command: join('.claude', 'hooks', 'lumen-pretool.sh'),
+                    hooks: [
+                        {
+                            type: 'command' as const,
+                            command: join('.claude', 'hooks', 'lumen-pretool.sh'),
+                        },
+                    ],
                 },
             ],
             Stop: [
                 {
-                    matcher: '.*',
-                    command: join('.claude', 'hooks', 'lumen-signal.sh'),
+                    /** Empty string = match all events (Claude Code v2.1+ convention). */
+                    matcher: '',
+                    hooks: [
+                        {
+                            type: 'command' as const,
+                            command: join('.claude', 'hooks', 'lumen-signal.sh'),
+                        },
+                    ],
                 },
             ],
         },
@@ -285,12 +360,14 @@ function installClaude(cwd: string): void {
 
     if (existsSync(settingsPath)) {
         const existing = JSON.parse(readFileSync(settingsPath, 'utf-8'));
-        const alreadyHasPreTool = existing.hooks?.PreToolUse?.some((h: { command: string }) =>
-            h.command.includes('lumen'),
-        );
-        const alreadyHasStop = existing.hooks?.Stop?.some((h: { command: string }) =>
-            h.command.includes('lumen'),
-        );
+        const hasLumenHook = (entries: unknown[]): boolean =>
+            Array.isArray(entries) &&
+            entries.some(
+                (e: unknown) =>
+                    typeof e === 'object' && e !== null && JSON.stringify(e).includes('lumen'),
+            );
+        const alreadyHasPreTool = hasLumenHook(existing.hooks?.PreToolUse ?? []);
+        const alreadyHasStop = hasLumenHook(existing.hooks?.Stop ?? []);
 
         if (!alreadyHasPreTool || !alreadyHasStop) {
             existing.hooks = existing.hooks ?? {};

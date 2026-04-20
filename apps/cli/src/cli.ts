@@ -26,7 +26,17 @@ import { registerEnrich } from './commands/enrich.js';
  */
 function loadEnvFiles(): void {
     const lumenDir = process.env.LUMEN_DIR || join(homedir(), '.lumen');
-    const candidates = [join(lumenDir, '.env'), join(process.cwd(), '.env')];
+    const defaultDir = join(homedir(), '.lumen');
+    /** Load order: LUMEN_DIR/.env > $PWD/.env > ~/.lumen/.env (fallback).
+     *  process.loadEnvFile uses first-write-wins: the first file to set a
+     *  variable wins, so LUMEN_DIR-specific keys take priority. ~/.lumen/.env
+     *  is last as a fallback so API keys are always found even when
+     *  LUMEN_DIR points to a workspace without its own .env. */
+    const candidates = [
+        ...(lumenDir !== defaultDir ? [join(lumenDir, '.env')] : []),
+        join(process.cwd(), '.env'),
+        join(defaultDir, '.env'),
+    ];
     for (const p of candidates) {
         if (!existsSync(p)) continue;
         try {
