@@ -1,5 +1,9 @@
 # Lumen
 
+[![npm](https://img.shields.io/npm/v/lumen-kb)](https://www.npmjs.com/package/lumen-kb)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE.md)
+[![GitHub](https://img.shields.io/github/stars/Sardor-M/Lumen?style=social)](https://github.com/Sardor-M/Lumen)
+
 You read constantly. Articles, papers, transcripts, YouTube talks, PDFs. Then you forget most of it.
 
 Your AI assistant has the same problem — worse, actually. It doesn't know anything you've read. Every conversation starts from zero. You paste the same context, re-explain the same ideas, re-answer the same questions about your own domain. The model knows the world but doesn't know _your_ world.
@@ -84,12 +88,16 @@ Claude reads the relevant chunks from your corpus and streams the answer token b
 ## Install
 
 ```bash
-pnpm install
-pnpm --filter @lumen/cli build
-cd apps/cli && npm link && cd ../..    # makes `lumen` global
+npm install -g lumen-kb
 ```
 
-npm package coming soon.
+Or from source:
+
+```bash
+git clone https://github.com/Sardor-M/Lumen.git
+cd lumen && pnpm install && pnpm build
+cd apps/cli && npm link
+```
 
 Set your API key once:
 
@@ -360,6 +368,15 @@ Open an issue before large changes. High-value areas:
 - Mastra and LangChain adapter improvements
 
 ---
+
+## Links
+
+- [npm package](https://www.npmjs.com/package/lumen-kb)
+- [GitHub](https://github.com/Sardor-M/Lumen)
+- [Changelog](./CHANGELOG.md)
+- [Contributing](./CONTRIBUTING.md)
+- [Security](./SECURITY.md)
+- [Benchmark plan](./docs/BENCHMARK-PLAN.md)
 
 ## License
 
