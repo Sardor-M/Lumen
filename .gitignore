@@ -22,8 +22,8 @@ next-env.d.ts
 /docs/docs-temp
 /test-benchmarks
 
-# CLI package — npm publish artifacts
-apps/cli/node_modules 2
+# CLI package — iCloud duplicate of node_modules
+apps/cli/node_modules\ 2
 
 # Generated graph exports
 graph.json

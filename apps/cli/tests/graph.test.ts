@@ -139,7 +139,7 @@ describe('godNodes', () => {
     it('ranks nodes by edge count descending', () => {
         const gods = godNodes(3);
         expect(gods.length).toBe(3);
-        /** Alpha has 3 edges (supports beta, related delta, and beta->alpha inbound). */
+        /** Alpha has 2 edges: supports beta, related delta. */
         expect(gods[0].slug).toBe('alpha');
         expect(gods[0].edgeCount).toBeGreaterThanOrEqual(2);
     });
