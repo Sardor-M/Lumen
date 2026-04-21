@@ -25,10 +25,5 @@ next-env.d.ts
 # CLI package — npm publish artifacts
 apps/cli/node_modules 2
 
-# Unfinished test stubs
-apps/cli/tests/compress.test.ts
-apps/cli/tests/delta.test.ts
-apps/cli/tests/graph.test.ts
-
 # Generated graph exports
 graph.json
