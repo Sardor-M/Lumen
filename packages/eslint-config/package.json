@@ -1,0 +1,14 @@
+{
+    "name": "@lumen/eslint-config",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "main": "./nextjs.mjs",
+    "exports": {
+        "./nextjs": "./nextjs.mjs"
+    },
+    "peerDependencies": {
+        "eslint": "^9",
+        "eslint-config-next": "^15"
+    }
+}
