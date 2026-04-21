@@ -1,0 +1,6 @@
+https://arxiv.org/abs/2412.15803
+https://arxiv.org/abs/2509.26182
+https://github.com/csAugust/WeInfer
+https://ai.google.dev/edge/mediapipe/solutions/genai/llm_inference/web_js
+https://www.nuss-and-bolts.com/p/optimizing-a-webgpu-matmul-kernel
+https://github.com/qwatts-dev/bitnet.js
