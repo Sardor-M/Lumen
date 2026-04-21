@@ -3,7 +3,7 @@ import type { KnipConfig } from 'knip';
 const config: KnipConfig = {
     workspaces: {
         'apps/cli': {
-            entry: ['src/cli.ts', 'src/mcp/server.ts'],
+            entry: ['src/cli.ts', 'src/mcp/server.ts', 'src/index.ts'],
             project: ['src/**/*.ts'],
             ignore: ['src/delta/**'],
             ignoreDependencies: ['tsx'],
