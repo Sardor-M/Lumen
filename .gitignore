@@ -19,5 +19,11 @@ next-env.d.ts
 *.tsbuildinfo
 
 /docs/docs_analysis_in_depth
-
+/docs/docs-temp
 /test-benchmarks
+
+# CLI package — iCloud duplicate of node_modules
+apps/cli/node_modules\ 2
+
+# Generated graph exports
+graph.json

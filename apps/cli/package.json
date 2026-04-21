@@ -1,13 +1,18 @@
 {
-    "name": "@lumen/cli",
-    "version": "0.1.0",
-    "description": "Lumen CLI — ingest, chunk, search, and compile reading into a structured knowledge graph",
+    "name": "lumen-kb",
+    "version": "0.1.2",
+    "description": "Local-first knowledge compiler — ingest articles, papers, PDFs, YouTube into a knowledge graph with hybrid search and MCP server",
     "type": "module",
     "bin": {
         "lumen": "./dist/cli.js"
     },
+    "files": [
+        "dist",
+        "README.md",
+        "LICENSE.md"
+    ],
     "exports": {
-        ".": "./src/index.ts",
+        ".": "./dist/cli.js",
         "./tools": "./src/tools.ts",
         "./openai": "./src/adapters/openai.ts",
         "./ai-sdk": "./src/adapters/ai-sdk.ts",
@@ -20,6 +25,33 @@
         "./types": "./src/types/index.ts",
         "./utils/paths": "./src/utils/paths.ts"
     },
+    "keywords": [
+        "knowledge-base",
+        "knowledge-graph",
+        "llm",
+        "search",
+        "bm25",
+        "tfidf",
+        "pagerank",
+        "sqlite",
+        "mcp",
+        "claude",
+        "rag",
+        "ai",
+        "cli",
+        "compiler"
+    ],
+    "author": "Sardor Madaminov",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/Sardor-M/Lumen.git",
+        "directory": "apps/cli"
+    },
+    "homepage": "https://github.com/Sardor-M/Lumen#readme",
+    "engines": {
+        "node": ">=22"
+    },
     "scripts": {
         "dev": "tsx src/cli.ts",
         "build": "tsup src/cli.ts --format esm --dts --clean",
@@ -30,7 +62,8 @@
         "test": "vitest run",
         "test:watch": "vitest",
         "benchmark": "tsx src/cli.ts benchmark",
-        "clean": "rm -rf dist"
+        "clean": "rm -rf dist",
+        "prepublishOnly": "npm run build"
     },
     "dependencies": {
         "@anthropic-ai/sdk": "^0.39.0",

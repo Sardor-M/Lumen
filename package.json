@@ -29,7 +29,7 @@
         "compiler"
     ],
     "author": "Sardor Madaminov",
-    "license": "PolyForm-Shield-1.0.0",
+    "license": "MIT",
     "devDependencies": {
         "husky": "^9.1.7",
         "lint-staged": "^16.4.0",

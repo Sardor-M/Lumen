@@ -363,4 +363,4 @@ Open an issue before large changes. High-value areas:
 
 ## License
 
-[PolyForm Shield 1.0.0](./LICENSE.md) -- free to use, modify, and distribute for any purpose except competing with the licensor's products or services. Commercial licensing: sardor0968@gmail.com.
+[MIT](./LICENSE.md)
