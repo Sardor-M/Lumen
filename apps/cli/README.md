@@ -88,6 +88,6 @@ Everything in `~/.lumen/lumen.db` — one SQLite file. Back it up and you have e
 
 ## Links
 
+- [npm](https://www.npmjs.com/package/lumen-kb)
 - [GitHub](https://github.com/Sardor-M/Lumen)
-- [Full documentation](https://github.com/Sardor-M/Lumen#readme)
-- [MIT License](https://github.com/Sardor-M/Lumen/blob/main/LICENSE.md)
+- MIT Licensed
