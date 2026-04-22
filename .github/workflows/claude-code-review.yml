@@ -52,7 +52,7 @@ jobs:
                   fi
 
                   # --- Cost guard: skip very large diffs (Sonnet ~$0.10-0.20 per run) ---
-                  MAX_DIFF_LINES=2000
+                  MAX_DIFF_LINES=4000
                   if [ "$DIFF_LINES" -gt "$MAX_DIFF_LINES" ]; then
                     echo "::warning::Diff too large ($DIFF_LINES lines > $MAX_DIFF_LINES). Skipping to stay within cost budget."
                     echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -157,7 +157,7 @@ jobs:
                     --repo ${{ github.repository }} \
                     --body "## 🤖 Claude Code Review
 
-                  Skipped — diff is too large for automated review (> 2000 lines). Use \`@claude\` in a comment to ask targeted questions about specific files or sections."
+                  Skipped — diff is too large for automated review (> 4000 lines). Use \`@claude\` in a comment to ask targeted questions about specific files or sections."
 
             - name: Review with Claude
               id: review
