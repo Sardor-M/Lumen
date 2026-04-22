@@ -41,11 +41,8 @@ jobs:
               uses: anthropics/claude-code-action@v1
               with:
                   anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-                  allowed_tools: 'Bash(gh pr *),Bash(gh api *),Bash(git diff *),Bash(git log *),Bash(git show *),Read,Glob,Grep,Edit,Write'
 
                   additional_permissions: |
                       actions: read
 
-                  # Pin to Sonnet 4.6 — default is Opus 4.7 at ~3x the price,
-                  # and @claude follow-ups rarely need the extra reasoning.
-                  claude_args: '--model claude-sonnet-4-6'
+                  claude_args: '--model claude-sonnet-4-6 --allowedTools "Bash(gh pr *),Bash(gh api *),Bash(git diff *),Bash(git log *),Bash(git show *),Read,Glob,Grep,Edit,Write"'
