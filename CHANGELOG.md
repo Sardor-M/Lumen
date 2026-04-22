@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3] - 2026-04-22
+
+### Added
+
+- Landing page app (`apps/landing`) with interactive graph, knowledge model, agent wiring demos
+- Shared `packages/ui` with `useClipboard` hook
+- Shared `packages/eslint-config` for Next.js flat config
+- Shared `packages/tsconfig` and `packages/brand`
+- Benchmarks runner (`benchmarks/`) with search quality, latency, graph ops, adversarial, MCP contract tests
+- npm/GitHub badges and links section in root README
+- `npm install -g lumen-kb` as primary install path
+
+### Fixed
+
+- `useClipboard`: await clipboard `writeText` Promise before setting `copied` state
+- `@eslint/eslintrc` added as explicit dependency in `packages/eslint-config`
+- `bench` script routes through workspace tsx instead of missing root dep
+- `@claude` workflow: `allowed_tools` moved into `claude_args` as `--allowedTools` flag
+- Auto-review diff limit raised from 2000 to 4000 lines
+- Landing JSX comment lint errors (wrapped `//` text in braces)
+- `.gitignore` iCloud `node_modules 2` pattern escaped correctly
+
 ## [0.1.2] - 2026-04-21
 
 ### Added
