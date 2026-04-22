@@ -18,6 +18,7 @@ export function Demo() {
     const [html, setHtml] = useState('');
     const [userInteracted, setUserInteracted] = useState(false);
     const runToken = useRef(0);
+    const loopTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const termBody = useRef<HTMLDivElement>(null);
     const sectionRef = useRef<HTMLElement>(null);
     const started = useRef(false);
@@ -38,8 +39,15 @@ export function Demo() {
             { threshold: 0.3 },
         );
         obs.observe(el);
-        return () => obs.disconnect();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+        return () => {
+            runToken.current++;
+            obs.disconnect();
+            if (loopTimer.current !== null) {
+                clearTimeout(loopTimer.current);
+                loopTimer.current = null;
+            }
+        };
+        /* eslint-disable-next-line react-hooks/exhaustive-deps */
     }, []);
 
     async function runScript(key: TerminalKey) {
@@ -65,7 +73,7 @@ export function Demo() {
         const key = TAB_ORDER[idx % TAB_ORDER.length];
         await runScript(key);
         if (!userInteractedRef.current) {
-            setTimeout(() => void autoLoop(idx + 1), 1800);
+            loopTimer.current = setTimeout(() => void autoLoop(idx + 1), 1800);
         }
     }
 
@@ -76,6 +84,10 @@ export function Demo() {
 
     function handleTabClick(key: TerminalKey) {
         setUserInteracted(true);
+        if (loopTimer.current !== null) {
+            clearTimeout(loopTimer.current);
+            loopTimer.current = null;
+        }
         void runScript(key);
     }
 
