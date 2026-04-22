@@ -18,10 +18,16 @@ export function useClipboard({ resetMs = 1400 }: UseClipboardOptions = {}): UseC
 
     const copy = useCallback(
         (text: string) => {
-            navigator.clipboard?.writeText(text);
-            setCopied(true);
-            if (timer.current) clearTimeout(timer.current);
-            timer.current = setTimeout(() => setCopied(false), resetMs);
+            navigator.clipboard
+                ?.writeText(text)
+                .then(() => {
+                    setCopied(true);
+                    if (timer.current) clearTimeout(timer.current);
+                    timer.current = setTimeout(() => setCopied(false), resetMs);
+                })
+                .catch(() => {
+                    setCopied(false);
+                });
         },
         [resetMs],
     );
