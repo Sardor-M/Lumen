@@ -1,0 +1,32 @@
+{
+    "name": "@lumen/landing",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "dev": "next dev -p 3001",
+        "build": "next build",
+        "start": "next start -p 3001",
+        "lint": "next lint && tsc --noEmit",
+        "format": "prettier --write \"src/**/*.{ts,tsx}\"",
+        "format:check": "prettier --check \"src/**/*.{ts,tsx}\"",
+        "clean": "rm -rf .next"
+    },
+    "dependencies": {
+        "@lumen/brand": "workspace:*",
+        "@lumen/ui": "workspace:*",
+        "next": "^15.5.0",
+        "react": "^19.0.0",
+        "react-dom": "^19.0.0"
+    },
+    "devDependencies": {
+        "@lumen/eslint-config": "workspace:*",
+        "@lumen/tsconfig": "workspace:*",
+        "@types/node": "^22.13.10",
+        "@types/react": "^19.0.0",
+        "@types/react-dom": "^19.0.0",
+        "eslint": "^9.17.0",
+        "eslint-config-next": "^15.5.0",
+        "typescript": "^5.8.2"
+    }
+}

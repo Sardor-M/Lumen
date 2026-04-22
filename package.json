@@ -11,6 +11,7 @@
         "test": "turbo test",
         "format": "prettier --write \"apps/*/src/**/*.{ts,tsx}\"",
         "format:check": "prettier --check \"apps/*/src/**/*.{ts,tsx}\"",
+        "bench": "pnpm --filter lumen-kb exec tsx ../../benchmarks/runner/all.ts",
         "clean": "turbo clean && rm -rf node_modules",
         "prepare": "husky"
     },

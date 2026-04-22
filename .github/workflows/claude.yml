@@ -45,6 +45,4 @@ jobs:
                   additional_permissions: |
                       actions: read
 
-                  # Pin to Sonnet 4.6 — default is Opus 4.7 at ~3x the price,
-                  # and @claude follow-ups rarely need the extra reasoning.
-                  claude_args: '--model claude-sonnet-4-6'
+                  claude_args: '--model claude-sonnet-4-6 --allowedTools "Bash(gh pr *),Bash(gh api *),Bash(git diff *),Bash(git log *),Bash(git show *),Read,Glob,Grep,Edit,Write"'

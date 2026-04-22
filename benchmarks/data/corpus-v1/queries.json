@@ -1,0 +1,96 @@
+{
+    "$schema": "queries-v1",
+    "description": "Graded query set. Relevance grades: 3 = exact topic, 2 = major reference, 1 = passing mention, 0 = irrelevant.",
+    "queries": [
+        {
+            "id": "q1",
+            "query": "BM25 formula saturation",
+            "category": "keyword-exact",
+            "relevant": { "bm25": 3, "sqlite-fts5": 2, "tfidf": 1 }
+        },
+        {
+            "id": "q2",
+            "query": "reciprocal rank fusion weights",
+            "category": "keyword-exact",
+            "relevant": { "rrf": 3, "hybrid-search": 2 }
+        },
+        {
+            "id": "q3",
+            "query": "PageRank damping factor",
+            "category": "keyword-exact",
+            "relevant": { "pagerank": 3, "god-nodes": 1, "graph-algorithms": 1 }
+        },
+        {
+            "id": "q4",
+            "query": "how does chunking affect embedding quality",
+            "category": "semantic",
+            "relevant": { "chunking": 3, "embedding": 2, "markdown-parsing": 1 }
+        },
+        {
+            "id": "q5",
+            "query": "community detection label propagation",
+            "category": "keyword-exact",
+            "relevant": { "community-detection": 3, "graph-algorithms": 1, "knowledge-graph": 1 }
+        },
+        {
+            "id": "q6",
+            "query": "FTS5 tokenizer porter stemmer",
+            "category": "keyword-exact",
+            "relevant": { "sqlite-fts5": 3, "porter-stemmer": 3 }
+        },
+        {
+            "id": "q7",
+            "query": "shortest path between two concepts",
+            "category": "semantic",
+            "relevant": { "graph-algorithms": 3, "knowledge-graph": 1 }
+        },
+        {
+            "id": "q8",
+            "query": "vector search approximate nearest neighbor",
+            "category": "keyword-exact",
+            "relevant": { "vector-search": 3, "sqlite-vec": 2, "embedding": 1 }
+        },
+        {
+            "id": "q9",
+            "query": "why local-first for knowledge tools",
+            "category": "semantic",
+            "relevant": { "local-first": 3, "sqlite-vec": 1, "mcp": 1 }
+        },
+        {
+            "id": "q10",
+            "query": "retrieval augmented generation grounding hallucination",
+            "category": "semantic",
+            "relevant": { "rag": 3, "hybrid-search": 1, "compilation": 1 }
+        },
+        {
+            "id": "q11",
+            "query": "Model Context Protocol tools exposed",
+            "category": "keyword-exact",
+            "relevant": { "mcp": 3, "knowledge-graph": 1 }
+        },
+        {
+            "id": "q12",
+            "query": "what is intent classification in search",
+            "category": "entity-lookup",
+            "relevant": { "intent-classification": 3, "hybrid-search": 2 }
+        },
+        {
+            "id": "q13",
+            "query": "knowledge graph compilation schema",
+            "category": "keyword-exact",
+            "relevant": { "compilation": 3, "knowledge-graph": 2 }
+        },
+        {
+            "id": "q14",
+            "query": "prompt caching TTL invalidation",
+            "category": "keyword-exact",
+            "relevant": { "prompt-caching": 3 }
+        },
+        {
+            "id": "q15",
+            "query": "concept with most edges central importance",
+            "category": "semantic",
+            "relevant": { "god-nodes": 3, "pagerank": 2, "knowledge-graph": 1 }
+        }
+    ]
+}

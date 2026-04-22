@@ -129,11 +129,6 @@ export function KnowledgeModel() {
                             ))}
                         </g>
                     </svg>
-                    <div className="graph-legend">
-                        <span>← hover a node</span>
-                        <span>· click to pin</span>
-                        <span>· edge weight = stroke</span>
-                    </div>
                 </div>
 
                 <aside className="concept-card" ref={cardRef}>

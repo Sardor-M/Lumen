@@ -243,15 +243,17 @@ export function HeroGraph() {
                                         stroke={tierStroke(n.tier)}
                                         strokeWidth={hover?.concept.id === n.id ? 3 : 1.5}
                                     />
-                                    <text
-                                        y={n.r + 12}
-                                        textAnchor="middle"
-                                        fontFamily="JetBrains Mono, monospace"
-                                        fontSize={n.tier === 1 ? 10.5 : 9.5}
-                                        fill={n.tier === 1 ? '#222' : '#666'}
-                                    >
-                                        {n.label}
-                                    </text>
+                                    {n.tier === 1 || hover?.concept.id === n.id ? (
+                                        <text
+                                            y={n.r + 12}
+                                            textAnchor="middle"
+                                            fontFamily="JetBrains Mono, monospace"
+                                            fontSize={11}
+                                            fill="#222"
+                                        >
+                                            {n.label}
+                                        </text>
+                                    ) : null}
                                 </g>
                             );
                         })}
@@ -268,21 +270,6 @@ export function HeroGraph() {
                         <div className="tip-truth">{hover.concept.truth}</div>
                     </div>
                 ) : null}
-
-                <div className="hg-legend">
-                    <span className="it">
-                        <span className="sw s1" />
-                        tier 1 · full
-                    </span>
-                    <span className="it">
-                        <span className="sw s2" />
-                        tier 2 · enriched
-                    </span>
-                    <span className="it">
-                        <span className="sw s3" />
-                        tier 3 · stub
-                    </span>
-                </div>
             </div>
 
             <div className="hg-foot">
@@ -300,9 +287,6 @@ export function HeroGraph() {
                         </button>
                     );
                 })}
-                <span className="fp-hint">
-                    click a node to focus · double-click canvas to reset
-                </span>
             </div>
         </div>
     );

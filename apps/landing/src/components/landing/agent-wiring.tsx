@@ -1,3 +1,4 @@
+import { INSTALL_CMDS } from '@lumen/brand';
 import { InstallBox } from './copy-button';
 
 type Component = {
@@ -119,7 +120,7 @@ export function AgentWiring() {
                         file directly via MCP.
                     </p>
 
-                    <InstallBox cmd="lumen install claude" maxWidth={480} />
+                    <InstallBox cmd={INSTALL_CMDS.installClaude} maxWidth={480} />
 
                     <div className="components">
                         {COMPONENTS.map((c) => (
