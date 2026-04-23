@@ -34,130 +34,135 @@ export function registerAdd(program: Command): void {
         .option('--as-dataset', 'Force dataset handling for ambiguous text files')
         .option('--no-ocr', 'Skip OCR when ingesting images (metadata-only)')
         .action(async (inputs: string[], opts: AddOptions) => {
-            const config = loadConfig();
-            const db = getDb();
+            try {
+                const config = loadConfig();
+                const db = getDb();
 
-            const VALID_SOURCE_TYPES: SourceType[] = [
-                'url', 'pdf', 'youtube', 'arxiv', 'file', 'folder', 'code', 'dataset', 'image',
-            ];
+                const VALID_SOURCE_TYPES: SourceType[] = [
+                    'url', 'pdf', 'youtube', 'arxiv', 'file', 'folder', 'code', 'dataset', 'image',
+                ];
 
-            if (opts.type && !VALID_SOURCE_TYPES.includes(opts.type as SourceType)) {
-                log.error(
-                    `Unknown type "${opts.type}". Valid types: ${VALID_SOURCE_TYPES.join(', ')}`,
-                );
-                process.exitCode = 1;
-                return;
-            }
-
-            const ingestOptions = {
-                ocr: opts.ocr,
-                as_dataset: opts.asDataset,
-                forcedType: opts.type as SourceType | undefined,
-            };
-
-            /** Collect all inputs from args + file. */
-            const allInputs = [...inputs];
-
-            if (opts.from) {
-                if (!existsSync(opts.from)) {
-                    log.error(`File not found: ${opts.from}`);
+                if (opts.type && !VALID_SOURCE_TYPES.includes(opts.type as SourceType)) {
+                    log.error(
+                        `Unknown type "${opts.type}". Valid types: ${VALID_SOURCE_TYPES.join(', ')}`,
+                    );
                     process.exitCode = 1;
                     return;
                 }
-                const lines = readFileSync(opts.from, 'utf-8')
-                    .split('\n')
-                    .map((l) => l.trim())
-                    .filter((l) => l && !l.startsWith('#'));
-                allInputs.push(...lines);
-            }
 
-            if (allInputs.length === 0) {
-                log.error('No inputs provided. Usage: lumen add <url|file|folder> [more...]');
-                log.dim('  Or: lumen add --from sources.txt');
-                process.exitCode = 1;
-                return;
-            }
+                const ingestOptions = {
+                    ocr: opts.ocr,
+                    as_dataset: opts.asDataset,
+                    forcedType: opts.type as SourceType | undefined,
+                };
 
-            let added = 0;
-            let skipped = 0;
-            let failed = 0;
+                /** Collect all inputs from args + file. */
+                const allInputs = [...inputs];
 
-            for (const input of allInputs) {
-                try {
-                    const sourceType = detectSourceType(input, ingestOptions);
-                    log.info(
-                        `[${added + skipped + failed + 1}/${allInputs.length}] ${sourceType}: ${input}`,
-                    );
-
-                    const result = await ingestInput(input, ingestOptions);
-
-                    /** Check for duplicate content. */
-                    const existingId = sourceExists(db, result.content);
-                    if (existingId) {
-                        log.warn(`Skipped (duplicate): ${result.title}`);
-                        skipped++;
-                        continue;
+                if (opts.from) {
+                    if (!existsSync(opts.from)) {
+                        log.error(`File not found: ${opts.from}`);
+                        process.exitCode = 1;
+                        return;
                     }
+                    const lines = readFileSync(opts.from, 'utf-8')
+                        .split('\n')
+                        .map((l) => l.trim())
+                        .filter((l) => l && !l.startsWith('#'));
+                    allInputs.push(...lines);
+                }
 
-                    const id = shortId(result.content);
-                    const hash = contentHash(result.content);
-                    const wordCount = result.content.split(/\s+/).length;
+                if (allInputs.length === 0) {
+                    log.error('No inputs provided. Usage: lumen add <url|file|folder> [more...]');
+                    log.dim('  Or: lumen add --from sources.txt');
+                    process.exitCode = 1;
+                    return;
+                }
 
-                    insertSource({
-                        id,
-                        title: result.title,
-                        url: result.url,
-                        content: result.content,
-                        content_hash: hash,
-                        source_type: result.source_type,
-                        added_at: new Date().toISOString(),
-                        compiled_at: null,
-                        word_count: wordCount,
-                        language: result.language,
-                        metadata: result.metadata ? JSON.stringify(result.metadata) : null,
-                    });
+                let added = 0;
+                let skipped = 0;
+                let failed = 0;
 
-                    const chunks = chunk(result.content, id, {
-                        minTokens: config.chunker.min_chunk_tokens,
-                        maxTokens: config.chunker.max_chunk_tokens,
-                    });
-                    insertChunks(chunks);
+                for (const input of allInputs) {
+                    try {
+                        const sourceType = detectSourceType(input, ingestOptions);
+                        log.info(
+                            `[${added + skipped + failed + 1}/${allInputs.length}] ${sourceType}: ${input}`,
+                        );
 
-                    audit('source:add', {
-                        id,
-                        title: result.title,
-                        source_type: result.source_type,
-                        chunks: chunks.length,
-                        words: wordCount,
-                    });
+                        const result = await ingestInput(input, ingestOptions);
 
-                    log.success(
-                        `Added "${result.title}" (${chunks.length} chunks, ${wordCount} words)`,
-                    );
-                    added++;
-                } catch (err) {
-                    failed++;
-                    if (err instanceof IngestError) {
-                        log.error(`[${err.code}] ${err.message}`);
-                        if (err.hint) log.dim(`  Hint: ${err.hint}`);
-                    } else {
-                        log.error(err instanceof Error ? err.message : String(err));
+                        /** Check for duplicate content. */
+                        const existingId = sourceExists(db, result.content);
+                        if (existingId) {
+                            log.warn(`Skipped (duplicate): ${result.title}`);
+                            skipped++;
+                            continue;
+                        }
+
+                        const id = shortId(result.content);
+                        const hash = contentHash(result.content);
+                        const wordCount = result.content.split(/\s+/).length;
+
+                        insertSource({
+                            id,
+                            title: result.title,
+                            url: result.url,
+                            content: result.content,
+                            content_hash: hash,
+                            source_type: result.source_type,
+                            added_at: new Date().toISOString(),
+                            compiled_at: null,
+                            word_count: wordCount,
+                            language: result.language,
+                            metadata: result.metadata ? JSON.stringify(result.metadata) : null,
+                        });
+
+                        const chunks = chunk(result.content, id, {
+                            minTokens: config.chunker.min_chunk_tokens,
+                            maxTokens: config.chunker.max_chunk_tokens,
+                        });
+                        insertChunks(chunks);
+
+                        audit('source:add', {
+                            id,
+                            title: result.title,
+                            source_type: result.source_type,
+                            chunks: chunks.length,
+                            words: wordCount,
+                        });
+
+                        log.success(
+                            `Added "${result.title}" (${chunks.length} chunks, ${wordCount} words)`,
+                        );
+                        added++;
+                    } catch (err) {
+                        failed++;
+                        if (err instanceof IngestError) {
+                            log.error(`[${err.code}] ${err.message}`);
+                            if (err.hint) log.dim(`  Hint: ${err.hint}`);
+                        } else {
+                            log.error(err instanceof Error ? err.message : String(err));
+                        }
                     }
                 }
-            }
 
-            /** Summary for batch operations. */
-            if (allInputs.length > 1) {
-                console.log();
-                log.heading('Summary');
-                log.table({
-                    Added: added,
-                    Skipped: skipped,
-                    Failed: failed,
-                    Total: allInputs.length,
-                });
-            }
+                /** Summary for batch operations. */
+                if (allInputs.length > 1) {
+                    console.log();
+                    log.heading('Summary');
+                    log.table({
+                        Added: added,
+                        Skipped: skipped,
+                        Failed: failed,
+                        Total: allInputs.length,
+                    });
+                }
 
-            if (failed > 0) process.exitCode = 1;
+                if (failed > 0) process.exitCode = 1;
+            } catch (err) {
+                log.error(err instanceof Error ? err.message : String(err));
+                process.exitCode = 1;
+            }
         });
 }
