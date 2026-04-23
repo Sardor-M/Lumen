@@ -4,11 +4,11 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE.md)
 [![GitHub](https://img.shields.io/github/stars/Sardor-M/Lumen?style=social)](https://github.com/Sardor-M/Lumen)
 
-You read constantly. Articles, papers, transcripts, YouTube talks, PDFs. Then you forget most of it.
+You read, ship, and build constantly. Articles, papers, transcripts, YouTube talks, PDFs, code you wrote last month, the CSV your colleague sent, the architecture diagram pinned on your desktop. Then you forget most of it.
 
-Your AI assistant has the same problem — worse, actually. It doesn't know anything you've read. Every conversation starts from zero. You paste the same context, re-explain the same ideas, re-answer the same questions about your own domain. The model knows the world but doesn't know _your_ world.
+Your AI assistant has the same problem — worse, actually. It doesn't know anything you've read or written. Every conversation starts from zero. You paste the same context, re-explain the same ideas, re-answer the same questions about your own domain. The model knows the world but doesn't know _your_ world.
 
-Lumen fixes that. Drop everything you've read into it and it builds a local knowledge graph — concepts, edges, connections — that your AI assistant can search before it answers. `lumen install claude` wires it directly into Claude Code with a `CLAUDE.md` brain-first protocol: the assistant checks your brain before the internet, cites your sources, and captures new ideas after every response.
+Lumen fixes that. Drop everything you've read, shipped, or captured into it — articles, papers, YouTube talks, whole code repositories, datasets, screenshots of dashboards, and clippings from your Obsidian vault — and it builds a local knowledge graph that your AI assistant can search before it answers. `lumen install claude` wires it directly into Claude Code with a `CLAUDE.md` brain-first protocol: the assistant checks your brain before the internet, cites your sources, and captures new ideas after every response.
 
 Everything runs on your machine. One SQLite file. No cloud, no server, no syncing. The LLM is only called when you ask it to compile or synthesize — search, indexing, graph traversal, and compression all run locally.
 
@@ -20,25 +20,25 @@ Everything runs on your machine. One SQLite file. No cloud, no server, no syncin
     INGEST              CHUNK               STORE              SEARCH
     ------              -----               -----              ------
 
-  URL     -+          +- Markdown         +- Sources         +- BM25 (FTS5)
-  PDF     -|          |                   |                  |
-  YouTube -+- Extract +- HTML        -->  +- Chunks    -->   +- TF-IDF
-  arXiv   -|          |                   |                  |
-  File    -|          +- Plain text       +- Concepts        +- Vector ANN
-  Dir     -+                              +- Edges           |
-                                          +- Links           +- Graph walk
-                                          +- Embeddings            |
-                                                                    v
-    COMPILE             ENRICH              GRAPH            RRF Fusion
-    -------             ------              -----          (3-signal merge)
-                                                                   |
-  LLM extracts       Tier scoring        PageRank            Budget cut
-  concepts +         escalates           Path finding              |
-  compiled truth     stubs ->            Community            Ranked chunks
-  + timeline         rich pages          detection                 |
-  per source         via LLM             Visualization             v
-  (3 parallel)                                               LLM synthesis
-                                                              (streaming)
+  URL      -+         +- Markdown         +- Sources         +- BM25 (FTS5)
+  PDF      -|         |                   |                  |
+  YouTube  -+         +- HTML             +- Chunks          +- TF-IDF
+  arXiv    -|- Extract|                -> |                -> |
+  File/Dir -|         +- Plain text       +- Concepts        +- Vector ANN
+  Code     -|         |                   +- Edges           |
+  Dataset  -|         +- Code + sigs      +- Links           +- Graph walk
+  Image    -|         |                   +- Embeddings             |
+  Obsidian -+         +- Schema tables                               v
+                                                              RRF Fusion
+    COMPILE             ENRICH              GRAPH          (3-signal merge)
+    -------             ------              -----                   |
+                                                                Budget cut
+  LLM extracts       Tier scoring        PageRank                   |
+  concepts +         escalates           Path finding          Ranked chunks
+  compiled truth     stubs ->            Community                  |
+  + timeline         rich pages          detection                  v
+  per source         via LLM             Visualization        LLM synthesis
+  (3 parallel)                                                 (streaming)
 ```
 
 ---
@@ -52,6 +52,10 @@ lumen add ./papers/attention-is-all-you-need.pdf
 lumen add https://www.youtube.com/watch?v=kCc8FmEb1nY
 lumen add 1706.03762                          # arXiv ID
 lumen add ./saved-articles/                   # whole folder at once
+lumen add https://github.com/anthropics/claude-code  # whole repo
+lumen add ./benchmarks/results.csv            # dataset — schema + preview indexed
+lumen add ./screenshots/grafana-dashboard.png # image — OCR'd into searchable text
+lumen watch add obsidian ~/ObsidianVault      # auto-pull clippings via frontmatter
 lumen compile -c 3                            # extract concepts + build graph (3 parallel)
 ```
 
@@ -212,7 +216,7 @@ The `capture` MCP tool writes the other direction — from conversation to graph
 
 ## How it works
 
-**Ingestion** — no LLM needed. URL scraping via `@extractus/article-extractor`, PDF via `pdf-parse`, YouTube transcripts via the Innertube captions API, arXiv via Atom + PDF. SHA-256 deduplication so the same quote across five sources costs one row.
+**Ingestion** — no LLM needed. URL scraping via `@extractus/article-extractor`, PDF via `pdf-parse`, YouTube transcripts via the Innertube captions API, arXiv via Atom + PDF. Code repos via shallow `git clone` with `.gitignore`-aware walk and per-language signature extraction. Datasets (CSV, TSV, JSONL, HuggingFace) produce a schema table plus a 20-row preview. Images use optional local Tesseract OCR when the binary is on PATH (`--no-ocr` skips). Obsidian Web Clipper vaults are watched as a connector — YAML frontmatter promotes the original URL so re-clippings dedup. SHA-256 deduplication throughout, so the same quote across five sources costs one row.
 
 **Compilation** — LLM pass. Extracts concepts and relations from stored chunks, writes them as nodes and weighted directed edges with compiled truth + timeline per concept. Delta-aware: `compile` only touches unprocessed sources. `compile --all` reprocesses everything. `compile -c 5` runs 5 sources in parallel. `compile --model claude-haiku-4-5-20251001` uses a faster/cheaper model.
 
@@ -224,25 +228,27 @@ The `capture` MCP tool writes the other direction — from conversation to graph
 
 ## CLI reference
 
-| Command                | What it does                                            | LLM |
-| ---------------------- | ------------------------------------------------------- | --- |
-| `init`                 | Create `~/.lumen` workspace                             |     |
-| `add <input>`          | Ingest URL, PDF, YouTube, arXiv, file, or folder        |     |
-| `compile`              | Extract concepts + edges from unprocessed sources       | yes |
-| `enrich`               | Tier-score concepts and LLM-enrich queued ones          | yes |
-| `embed`                | Generate vector embeddings for chunks                   | API |
-| `search <query>`       | Hybrid local search (BM25 + TF-IDF + vector + graph)    |     |
-| `ask <question>`       | Search + streamed LLM-synthesized answer                | yes |
-| `graph <subcommand>`   | Overview, pagerank, path, neighbors, report, export     |     |
-| `profile`              | Corpus summary — sources, density, frequent queries     |     |
-| `status`               | DB statistics (text or JSON)                            |     |
-| `memory export/import` | Portable JSONL or SQL backup                            |     |
-| `serve`                | Start the web UI against your local knowledge base      |     |
-| `install <platform>`   | Wire into Claude Code (`claude`) or Codex (`codex`)     |     |
-| `watch`                | Watch a folder and auto-ingest changes                  |     |
-| `daemon`               | Install/uninstall as background launchd/systemd service |     |
+| Command                | What it does                                                             | LLM |
+| ---------------------- | ------------------------------------------------------------------------ | --- |
+| `init`                 | Create `~/.lumen` workspace                                              |     |
+| `add <input>`          | Ingest URL, PDF, YouTube, arXiv, file, folder, code repo, dataset, image |     |
+| `compile`              | Extract concepts + edges from unprocessed sources                        | yes |
+| `enrich`               | Tier-score concepts and LLM-enrich queued ones                           | yes |
+| `embed`                | Generate vector embeddings for chunks                                    | API |
+| `search <query>`       | Hybrid local search (BM25 + TF-IDF + vector + graph)                     |     |
+| `ask <question>`       | Search + streamed LLM-synthesized answer                                 | yes |
+| `graph <subcommand>`   | Overview, pagerank, path, neighbors, report, export                      |     |
+| `profile`              | Corpus summary — sources, density, frequent queries                      |     |
+| `status`               | DB statistics (text or JSON)                                             |     |
+| `memory export/import` | Portable JSONL or SQL backup                                             |     |
+| `serve`                | Start the web UI against your local knowledge base                       |     |
+| `install <platform>`   | Wire into Claude Code (`claude`) or Codex (`codex`)                      |     |
+| `watch`                | Watch a folder and auto-ingest changes                                   |     |
+| `daemon`               | Install/uninstall as background launchd/systemd service                  |     |
 
 Compile options: `lumen compile -c 5` (5 parallel), `lumen compile --model claude-haiku-4-5-20251001` (faster model).
+
+Add options: `--type <type>` force source type; `--as-dataset` treat an ambiguous text file as tabular data; `--no-ocr` skip OCR when ingesting images; `--from <file>` read inputs line-by-line.
 
 Search options: `lumen search "query" -n 5` (limit results), `lumen search "query" -b 4000` (token budget).
 
@@ -362,8 +368,10 @@ Tests use a temp directory: `LUMEN_DIR=$(mktemp -d)`.
 
 Open an issue before large changes. High-value areas:
 
-- Additional ingest formats (EPUB, DOCX, RSS)
-- Additional chunker formats (RST, LaTeX)
+- Additional ingest formats (EPUB, DOCX, Parquet native)
+- Tree-sitter-based code parsing to replace the current regex signatures
+- Claude Vision pass on compile for image captions
+- In-house browser clipper extension (deferred until Obsidian flow is validated)
 - Web dashboard — live graph visualization
 - Mastra and LangChain adapter improvements
 
