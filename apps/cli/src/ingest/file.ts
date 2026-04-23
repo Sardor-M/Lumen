@@ -15,6 +15,8 @@ export type IngestOptions = {
     ocr?: boolean;
     /** Force dataset handling for ambiguous files. */
     as_dataset?: boolean;
+    /** Override auto-detection and force a specific source type. */
+    forcedType?: SourceType;
 };
 
 /**
@@ -53,6 +55,8 @@ export async function ingestInput(
 
 /** Detect the source type from the input string. */
 export function detectSourceType(input: string, options: IngestOptions = {}): SourceType {
+    if (options.forcedType) return options.forcedType;
+
     /** YouTube URLs and video IDs. */
     if (/youtu\.?be/i.test(input) || /^[\w-]{11}$/.test(input)) return 'youtube';
 

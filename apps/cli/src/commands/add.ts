@@ -1,5 +1,6 @@
 import { readFileSync, existsSync } from 'node:fs';
 import type { Command } from 'commander';
+import type { SourceType } from '../types/index.js';
 import { ingestInput, detectSourceType } from '../ingest/file.js';
 import { IngestError } from '../ingest/errors.js';
 import { chunk } from '../chunker/index.js';
@@ -36,9 +37,22 @@ export function registerAdd(program: Command): void {
             const config = loadConfig();
             const db = getDb();
 
+            const VALID_SOURCE_TYPES: SourceType[] = [
+                'url', 'pdf', 'youtube', 'arxiv', 'file', 'folder', 'code', 'dataset', 'image',
+            ];
+
+            if (opts.type && !VALID_SOURCE_TYPES.includes(opts.type as SourceType)) {
+                log.error(
+                    `Unknown type "${opts.type}". Valid types: ${VALID_SOURCE_TYPES.join(', ')}`,
+                );
+                process.exitCode = 1;
+                return;
+            }
+
             const ingestOptions = {
                 ocr: opts.ocr,
                 as_dataset: opts.asDataset,
+                forcedType: opts.type as SourceType | undefined,
             };
 
             /** Collect all inputs from args + file. */
@@ -70,7 +84,7 @@ export function registerAdd(program: Command): void {
 
             for (const input of allInputs) {
                 try {
-                    const sourceType = opts.type || detectSourceType(input, ingestOptions);
+                    const sourceType = detectSourceType(input, ingestOptions);
                     log.info(
                         `[${added + skipped + failed + 1}/${allInputs.length}] ${sourceType}: ${input}`,
                     );
