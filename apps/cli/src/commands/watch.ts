@@ -170,7 +170,14 @@ function ensureInitialized(): void {
 }
 
 function validateType(raw: string): ConnectorType {
-    const known: ConnectorType[] = ['rss', 'folder', 'arxiv', 'github', 'youtube-channel'];
+    const known: ConnectorType[] = [
+        'rss',
+        'folder',
+        'arxiv',
+        'github',
+        'youtube-channel',
+        'obsidian',
+    ];
     const registered = listHandlerTypes();
     if (!known.includes(raw as ConnectorType)) {
         throw new Error(`Unknown connector type "${raw}". Known: ${known.join(', ')}`);
