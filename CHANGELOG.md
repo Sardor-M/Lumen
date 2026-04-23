@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.4] - 2026-04-23
+
+### Added
+
+- Ingest expansion — three new source types and one new connector, all additive to the existing `sources`/`chunks` schema via the JSON `metadata` column:
+    - **Code repositories** (`source_type: 'code'`) — `lumen add <github-url>` clones shallowly into `os.tmpdir()` and cleans up; `lumen add ./path` reads in place and captures `commit_sha` + `branch` when `.git` is present. Honours `.gitignore`, hard-skips `node_modules` / `dist` / `.next` / `target` / etc., truncates files over 50 KB, caps at 800 files per repo. Lightweight regex extracts top-level function/class/type/interface signatures for JavaScript, TypeScript, Python, Go, Rust, Java, C/C++, Ruby, C#. `README.md` / `CONTRIBUTING.md` / `docs/` are ordered before source sections.
+    - **Datasets** (`source_type: 'dataset'`) — `lumen add ./data.csv` or `lumen add https://huggingface.co/datasets/<id>`. Native CSV / TSV / JSONL parsing (quoted fields with doubled-quote escapes, delimiter auto-detection); HuggingFace datasets fetched via the `/api/datasets/` endpoint plus `/raw/main/README.md` for the card. Each dataset produces a schema table (column name, inferred type, null count in sample) and a 20-row preview rendered as markdown. Colocated `README.md` / `dataset-card.md` auto-inlined.
+    - **Images** (`source_type: 'image'`) — `lumen add screenshot.png`. SHA-256 of image bytes computed into metadata; MIME inferred from extension. Optional OCR shells out to a local `tesseract` binary when it's on `PATH`; `--no-ocr` skips and stores metadata only. Missing binary produces a clear install hint (`brew install tesseract`) rather than failing the ingest. Supported: `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, `.bmp`, `.tiff`.
+    - **Obsidian connector** (`ConnectorType: 'obsidian'`) — `lumen watch add obsidian ~/vault`. Watches a vault (or optional `subdir`), parses YAML frontmatter produced by the Obsidian Web Clipper, and promotes the `source:` URL into the `ExtractionResult` so re-clippings of the same article dedup by URL. Skips the `.obsidian` metadata folder and other dotfiles. Flat keys, inline arrays, and block-list arrays all supported.
+- Auto-detection in `detectSourceType`: GitHub repo URL → `code`, HuggingFace dataset URL → `dataset`, `.csv` / `.tsv` / `.jsonl` / `.ndjson` → `dataset`, image extensions → `image`, directory containing `.git` → `code`.
+- `add` command options: `--as-dataset` (force dataset handling), `--no-ocr` (skip OCR on images). `lib/add.ts` `AddInput` object form accepts an `options` field, threading `IngestOptions` through the programmatic ingest path.
+- 77 new tests across `tests/code.test.ts` (20), `tests/dataset.test.ts` (20), `tests/image.test.ts` (12, one conditionally skipped when tesseract is absent), `tests/obsidian.test.ts` (19), and 7 new assertions in `tests/ingest.test.ts` for the widened `detectSourceType`. Total suite: 534 passing, 2 skipped.
+
+### Changed
+
+- `SourceType` union widened to `'url' | 'pdf' | 'youtube' | 'arxiv' | 'file' | 'folder' | 'code' | 'dataset' | 'image'`. No schema migration needed — the existing `source_type TEXT` column and `metadata TEXT` JSON column already accept any string / blob.
+- `ConnectorType` union widened with `'obsidian'`. `watch add obsidian <vault>` becomes the recommended path for ambient browser clippings (via the Obsidian Web Clipper extension).
+- `apps/cli/src/ingest/file.ts` `ingestInput` accepts an optional `IngestOptions` second argument; signature is backwards-compatible for existing callers.
+
+### Deferred (tracked in `docs/docs-temp/INGEST-EXPANSION-PLAN.md`)
+
+- Tree-sitter-based code parsing — current implementation uses lightweight per-language regex for signatures, which is sufficient for BM25 discovery but misses nested/complex declarations. Deferred to avoid a native-build dependency.
+- Claude Vision caption pass on `compile` for images — `metadata.caption` is reserved as a placeholder; no model call yet.
+- Native Parquet support — `.parquet` errors with a `duckdb` conversion hint rather than parsing. Adding `parquetjs-lite` felt like too much surface area for the current iCloud-synced dev environment.
+- In-house browser extension for clippings — Obsidian path is expected to validate the flow before investing in a separate extension.
+
 ## [0.1.3] - 2026-04-22
 
 ### Added

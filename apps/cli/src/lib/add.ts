@@ -1,4 +1,5 @@
 import { ingestInput } from '../ingest/file.js';
+import type { IngestOptions } from '../ingest/file.js';
 import { chunk } from '../chunker/index.js';
 import { getDb } from '../store/database.js';
 import { insertSource } from '../store/sources.js';
@@ -16,7 +17,7 @@ import { LumenError } from './errors.js';
  * additional options (chunker overrides, metadata, etc.) can go on the
  * object without breaking callers.
  */
-export type AddInput = string | { input: string };
+export type AddInput = string | { input: string; options?: IngestOptions };
 
 export type AddResult =
     | {
@@ -45,7 +46,7 @@ export type AddResult =
  * The CLI's `lumen add` is a loop over this function with log wrapping.
  */
 export async function addSource(input: AddInput): Promise<AddResult> {
-    const raw = normalize(input);
+    const { raw, options } = normalize(input);
     if (!raw) {
         throw new LumenError('INVALID_ARGUMENT', 'add(): `input` must be a non-empty string');
     }
@@ -53,7 +54,7 @@ export async function addSource(input: AddInput): Promise<AddResult> {
     const config = loadConfig();
     const db = getDb();
 
-    const result = await ingestInput(raw);
+    const result = await ingestInput(raw, options);
 
     const existingId = sourceExists(db, result.content);
     if (existingId) {
@@ -113,10 +114,10 @@ export async function addSource(input: AddInput): Promise<AddResult> {
     });
 }
 
-function normalize(input: AddInput): string {
-    if (typeof input === 'string') return input.trim();
+function normalize(input: AddInput): { raw: string; options: IngestOptions } {
+    if (typeof input === 'string') return { raw: input.trim(), options: {} };
     if (input && typeof input === 'object' && typeof input.input === 'string') {
-        return input.input.trim();
+        return { raw: input.input.trim(), options: input.options ?? {} };
     }
-    return '';
+    return { raw: '', options: {} };
 }

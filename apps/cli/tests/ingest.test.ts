@@ -1,4 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { detectSourceType } from '../src/ingest/file.js';
 import {
     IngestError,
@@ -26,6 +29,20 @@ describe('detectSourceType', () => {
         expect(detectSourceType('https://example.com/article')).toBe('url');
     });
 
+    it('detects GitHub repository URLs as code', () => {
+        expect(detectSourceType('https://github.com/anthropics/claude-code')).toBe('code');
+        expect(detectSourceType('https://github.com/owner/repo.git')).toBe('code');
+    });
+
+    it('does not treat deep GitHub URLs as code', () => {
+        expect(detectSourceType('https://github.com/owner/repo/issues/1')).toBe('url');
+    });
+
+    it('detects HuggingFace dataset URLs as dataset', () => {
+        expect(detectSourceType('https://huggingface.co/datasets/glue')).toBe('dataset');
+        expect(detectSourceType('https://huggingface.co/datasets/org/name')).toBe('dataset');
+    });
+
     it('detects local files', () => {
         expect(detectSourceType('./package.json')).toBe('file');
     });
@@ -36,6 +53,53 @@ describe('detectSourceType', () => {
 
     it('throws for non-existent paths', () => {
         expect(() => detectSourceType('/nonexistent/path/xyz')).toThrow(IngestError);
+    });
+});
+
+describe('detectSourceType — local filesystem branches', () => {
+    let workDir: string;
+
+    beforeEach(() => {
+        workDir = mkdtempSync(join(tmpdir(), 'lumen-detect-'));
+    });
+
+    afterEach(() => {
+        rmSync(workDir, { recursive: true, force: true });
+    });
+
+    it('detects .csv / .jsonl / .tsv as dataset', () => {
+        const csv = join(workDir, 'data.csv');
+        const jsonl = join(workDir, 'data.jsonl');
+        const tsv = join(workDir, 'data.tsv');
+        writeFileSync(csv, 'a,b\n1,2');
+        writeFileSync(jsonl, '{"a":1}');
+        writeFileSync(tsv, 'a\tb\n1\t2');
+
+        expect(detectSourceType(csv)).toBe('dataset');
+        expect(detectSourceType(jsonl)).toBe('dataset');
+        expect(detectSourceType(tsv)).toBe('dataset');
+    });
+
+    it('detects common image extensions as image', () => {
+        const png = join(workDir, 'screenshot.png');
+        const jpg = join(workDir, 'photo.jpg');
+        writeFileSync(png, '');
+        writeFileSync(jpg, '');
+        expect(detectSourceType(png)).toBe('image');
+        expect(detectSourceType(jpg)).toBe('image');
+    });
+
+    it('detects a directory containing .git as code', () => {
+        mkdirSync(join(workDir, '.git'));
+        writeFileSync(join(workDir, 'README.md'), '# hi');
+        expect(detectSourceType(workDir)).toBe('code');
+    });
+
+    it('--as-dataset forces dataset handling for plain text files', () => {
+        const txt = join(workDir, 'ambiguous.txt');
+        writeFileSync(txt, 'a,b\n1,2');
+        expect(detectSourceType(txt)).toBe('file');
+        expect(detectSourceType(txt, { as_dataset: true })).toBe('dataset');
     });
 });
 

@@ -4,6 +4,7 @@ import { folderHandler } from './handlers/folder.js';
 import { arxivHandler } from './handlers/arxiv.js';
 import { githubHandler } from './handlers/github.js';
 import { youtubeChannelHandler } from './handlers/youtube-channel.js';
+import { obsidianHandler } from './handlers/obsidian.js';
 
 /**
  * Registers every built-in handler once at import time. CLI commands and
@@ -18,6 +19,7 @@ export function initConnectors(): void {
     registerHandler(arxivHandler);
     registerHandler(githubHandler);
     registerHandler(youtubeChannelHandler);
+    registerHandler(obsidianHandler);
     initialized = true;
 }
 

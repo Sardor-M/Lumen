@@ -1,4 +1,4 @@
-import { readFileSync, statSync, readdirSync, accessSync, constants } from 'node:fs';
+import { readFileSync, statSync, readdirSync, accessSync, existsSync, constants } from 'node:fs';
 import { join, extname } from 'node:path';
 import type { ExtractionResult, SourceType } from '../types/index.js';
 import { IngestError, withRetry } from './errors.js';
@@ -6,13 +6,28 @@ import { extractUrl } from './url.js';
 import { extractPdf } from './pdf.js';
 import { extractYoutube } from './youtube.js';
 import { extractArxiv } from './arxiv.js';
+import { extractCode, isGithubRepoUrl } from './code.js';
+import { extractDataset, isDatasetPath, isHuggingFaceUrl } from './dataset.js';
+import { extractImage, isImagePath } from './image.js';
+
+export type IngestOptions = {
+    /** Enable OCR for image ingest. Default: true. */
+    ocr?: boolean;
+    /** Force dataset handling for ambiguous files. */
+    as_dataset?: boolean;
+    /** Override auto-detection and force a specific source type. */
+    forcedType?: SourceType;
+};
 
 /**
  * Detect input type, route to the appropriate extractor,
  * and retry transient failures automatically.
  */
-export async function ingestInput(input: string): Promise<ExtractionResult> {
-    const sourceType = detectSourceType(input);
+export async function ingestInput(
+    input: string,
+    options: IngestOptions = {},
+): Promise<ExtractionResult> {
+    const sourceType = detectSourceType(input, options);
 
     return withRetry(() => {
         switch (sourceType) {
@@ -24,6 +39,12 @@ export async function ingestInput(input: string): Promise<ExtractionResult> {
                 return extractUrl(input);
             case 'pdf':
                 return extractPdf(input);
+            case 'code':
+                return Promise.resolve(extractCode(input));
+            case 'dataset':
+                return extractDataset(input);
+            case 'image':
+                return Promise.resolve(extractImage(input, { ocr: options.ocr }));
             case 'file':
                 return Promise.resolve(extractLocalFile(input));
             case 'folder':
@@ -33,23 +54,37 @@ export async function ingestInput(input: string): Promise<ExtractionResult> {
 }
 
 /** Detect the source type from the input string. */
-export function detectSourceType(input: string): SourceType {
+export function detectSourceType(input: string, options: IngestOptions = {}): SourceType {
+    if (options.forcedType) return options.forcedType;
+
     /** YouTube URLs and video IDs. */
     if (/youtu\.?be/i.test(input) || /^[\w-]{11}$/.test(input)) return 'youtube';
 
     /** arXiv URLs and paper IDs. */
     if (/arxiv\.org/i.test(input) || /^\d{4}\.\d{4,5}(v\d+)?$/.test(input)) return 'arxiv';
 
-    /** Remote URLs (non-YouTube, non-arXiv). */
+    /** GitHub repository URLs — cloned and ingested as a code source. */
+    if (isGithubRepoUrl(input)) return 'code';
+
+    /** HuggingFace dataset URLs — fetched via the datasets API. */
+    if (isHuggingFaceUrl(input)) return 'dataset';
+
+    /** Remote URLs (non-YouTube, non-arXiv, non-GitHub, non-HF). */
     if (/^https?:\/\//i.test(input)) {
         if (input.toLowerCase().endsWith('.pdf')) return 'pdf';
         return 'url';
     }
 
-    /** Local file system paths. */
+    /** Local file system paths — inspect the file or directory. */
     try {
         const stat = statSync(input);
-        if (stat.isDirectory()) return 'folder';
+        if (stat.isDirectory()) {
+            if (existsSync(join(input, '.git'))) return 'code';
+            return 'folder';
+        }
+
+        if (options.as_dataset || isDatasetPath(input)) return 'dataset';
+        if (isImagePath(input)) return 'image';
         if (extname(input).toLowerCase() === '.pdf') return 'pdf';
         return 'file';
     } catch {
