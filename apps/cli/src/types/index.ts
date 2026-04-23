@@ -7,7 +7,16 @@ export type ChunkType =
     | 'table'
     | 'frontmatter';
 
-export type SourceType = 'url' | 'pdf' | 'youtube' | 'arxiv' | 'file' | 'folder';
+export type SourceType =
+    | 'url'
+    | 'pdf'
+    | 'youtube'
+    | 'arxiv'
+    | 'file'
+    | 'folder'
+    | 'code'
+    | 'dataset'
+    | 'image';
 
 export type RelationType =
     | 'implements'
@@ -221,7 +230,7 @@ export type QueryIntent =
     | 'originals' /** "what have I said about X" / "my notes on X" */
     | 'hybrid_search'; /** everything else — full three-signal pipeline */
 
-export type ConnectorType = 'rss' | 'folder' | 'arxiv' | 'github' | 'youtube-channel';
+export type ConnectorType = 'rss' | 'folder' | 'arxiv' | 'github' | 'youtube-channel' | 'obsidian';
 
 export type Connector = {
     id: string;

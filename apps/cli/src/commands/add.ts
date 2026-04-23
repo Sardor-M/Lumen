@@ -12,15 +12,34 @@ import { audit } from '../utils/logger.js';
 import * as log from '../utils/logger.js';
 import { loadConfig } from '../utils/config.js';
 
+type AddOptions = {
+    type?: string;
+    from?: string;
+    asDataset?: boolean;
+    ocr?: boolean;
+};
+
 export function registerAdd(program: Command): void {
     program
         .command('add [inputs...]')
-        .description('Ingest URLs, PDFs, YouTube videos, arXiv papers, files, or folders')
-        .option('-t, --type <type>', 'Force source type (url, pdf, youtube, arxiv, file, folder)')
+        .description(
+            'Ingest URLs, PDFs, YouTube videos, arXiv papers, files, folders, code repos, datasets, or images',
+        )
+        .option(
+            '-t, --type <type>',
+            'Force source type (url, pdf, youtube, arxiv, file, folder, code, dataset, image)',
+        )
         .option('-f, --from <file>', 'Read inputs from a file (one per line)')
-        .action(async (inputs: string[], opts: { type?: string; from?: string }) => {
+        .option('--as-dataset', 'Force dataset handling for ambiguous text files')
+        .option('--no-ocr', 'Skip OCR when ingesting images (metadata-only)')
+        .action(async (inputs: string[], opts: AddOptions) => {
             const config = loadConfig();
             const db = getDb();
+
+            const ingestOptions = {
+                ocr: opts.ocr,
+                as_dataset: opts.asDataset,
+            };
 
             /** Collect all inputs from args + file. */
             const allInputs = [...inputs];
@@ -51,12 +70,12 @@ export function registerAdd(program: Command): void {
 
             for (const input of allInputs) {
                 try {
-                    const sourceType = opts.type || detectSourceType(input);
+                    const sourceType = opts.type || detectSourceType(input, ingestOptions);
                     log.info(
                         `[${added + skipped + failed + 1}/${allInputs.length}] ${sourceType}: ${input}`,
                     );
 
-                    const result = await ingestInput(input);
+                    const result = await ingestInput(input, ingestOptions);
 
                     /** Check for duplicate content. */
                     const existingId = sourceExists(db, result.content);
