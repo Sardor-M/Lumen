@@ -265,12 +265,15 @@ function parseJsonl(path: string): { rows: Record<string, unknown>[]; columnName
             if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
                 rows.push(obj);
                 for (const key of Object.keys(obj)) columnSet.add(key);
+                parsed++;
+                if (parsed >= SCHEMA_SAMPLE_ROWS) break;
             }
         } catch {
-            /** Skip malformed lines rather than failing the whole ingest. */
+            /** Skip malformed lines rather than failing the whole ingest.
+             *  Malformed / non-object lines don't count toward the sample
+             *  cap — otherwise a file with mostly-bad lines would silently
+             *  truncate the usable rows well below SCHEMA_SAMPLE_ROWS. */
         }
-        parsed++;
-        if (parsed >= SCHEMA_SAMPLE_ROWS) break;
     }
 
     return { rows, columnNames: Array.from(columnSet) };

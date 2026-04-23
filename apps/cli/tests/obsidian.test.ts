@@ -133,6 +133,18 @@ describe('obsidianHandler.parseTarget', () => {
             /subdirectory not found/,
         );
     });
+
+    it('rejects a subdir that escapes the vault via ..', () => {
+        expect(() => obsidianHandler.parseTarget(vaultDir, { subdir: '../../etc' })).toThrow(
+            /must stay inside the vault/,
+        );
+    });
+
+    it('rejects an absolute-path subdir that lands outside the vault', () => {
+        expect(() => obsidianHandler.parseTarget(vaultDir, { subdir: '/etc' })).toThrow(
+            /must stay inside the vault/,
+        );
+    });
 });
 
 describe('obsidianHandler.pull', () => {

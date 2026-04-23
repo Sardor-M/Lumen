@@ -1,5 +1,5 @@
 import { readFileSync, statSync, readdirSync, existsSync } from 'node:fs';
-import { resolve, join, extname, basename, relative } from 'node:path';
+import { resolve, join, extname, basename, relative, isAbsolute, sep } from 'node:path';
 import type { ConnectorHandler, PullResult } from '../types.js';
 import type { Connector, ExtractionResult } from '../../types/index.js';
 
@@ -35,7 +35,10 @@ export const obsidianHandler: ConnectorHandler = {
         }
 
         const subdir = typeof options.subdir === 'string' ? options.subdir : undefined;
-        const rootForWalk = subdir ? join(absPath, subdir) : absPath;
+        const rootForWalk = subdir ? resolve(absPath, subdir) : absPath;
+        if (subdir && !isInside(absPath, rootForWalk)) {
+            throw new Error(`Clippings subdirectory must stay inside the vault: ${subdir}`);
+        }
         if (subdir && !existsSync(rootForWalk)) {
             throw new Error(`Clippings subdirectory not found: ${rootForWalk}`);
         }
@@ -296,6 +299,20 @@ export function parseFrontmatter(raw: string): {
 
     const body = lines.slice(end + 1).join('\n');
     return { frontmatter, body };
+}
+
+/**
+ * True when `candidate` resolves to a path inside (or equal to) `root`.
+ * Both paths must already be absolute. Catches `..` escapes and, on
+ * Windows, cross-drive escapes where `relative()` returns an absolute
+ * path rather than a `..`-prefixed relative one.
+ */
+function isInside(root: string, candidate: string): boolean {
+    if (candidate === root) return true;
+    const rel = relative(root, candidate);
+    if (rel === '' || rel === '.') return true;
+    if (isAbsolute(rel)) return false;
+    return !rel.startsWith('..' + sep) && rel !== '..';
 }
 
 function stripQuotes(value: string): string {

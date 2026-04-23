@@ -14,6 +14,7 @@ beforeEach(() => {
 afterEach(() => {
     rmSync(workDir, { recursive: true, force: true });
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
 });
 
 describe('isDatasetPath', () => {
@@ -207,16 +208,19 @@ describe('extractDataset — HuggingFace', () => {
             description: 'GLUE benchmark',
             cardData: { license: 'cc' },
         };
-        global.fetch = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
-            const url = typeof input === 'string' ? input : input.toString();
-            if (url.includes('/api/datasets/')) {
-                return makeResponse(200, apiBody);
-            }
-            if (url.includes('/raw/main/README.md')) {
-                return makeResponse(200, '# GLUE\n\nDataset card body');
-            }
-            return makeResponse(404, { message: 'not found' });
-        }) as unknown as typeof fetch;
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async (input: Parameters<typeof fetch>[0]) => {
+                const url = typeof input === 'string' ? input : input.toString();
+                if (url.includes('/api/datasets/')) {
+                    return makeResponse(200, apiBody);
+                }
+                if (url.includes('/raw/main/README.md')) {
+                    return makeResponse(200, '# GLUE\n\nDataset card body');
+                }
+                return makeResponse(404, { message: 'not found' });
+            }),
+        );
 
         const result = await extractDataset('https://huggingface.co/datasets/glue');
         expect(result.source_type).toBe('dataset');
@@ -231,9 +235,10 @@ describe('extractDataset — HuggingFace', () => {
     });
 
     it('parses owner/name dataset IDs', async () => {
-        global.fetch = vi.fn(async () =>
-            makeResponse(200, { description: 'ds', cardData: {} }),
-        ) as unknown as typeof fetch;
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async () => makeResponse(200, { description: 'ds', cardData: {} })),
+        );
 
         const result = await extractDataset('https://huggingface.co/datasets/org/my-data');
         const meta = result.metadata as Record<string, unknown>;
