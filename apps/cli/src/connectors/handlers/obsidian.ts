@@ -64,8 +64,16 @@ export const obsidianHandler: ConnectorHandler = {
         const config = parseConfig(connector.config);
         const state = parseState(connector.state);
         const root = config.clippings_subdir
-            ? join(config.vault_path, config.clippings_subdir)
+            ? resolve(config.vault_path, config.clippings_subdir)
             : config.vault_path;
+
+        if (config.clippings_subdir && !isInside(config.vault_path, root)) {
+            return Promise.reject(
+                new Error(
+                    `Clippings subdirectory must stay inside the vault: ${config.clippings_subdir}`,
+                ),
+            );
+        }
 
         if (!existsSync(root)) {
             return Promise.reject(
