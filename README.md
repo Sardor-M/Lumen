@@ -347,7 +347,7 @@ The only network calls are: (a) fetching the URL or arXiv paper you asked to ing
 ```bash
 pnpm install
 pnpm dev                          # turbo dev -- all apps in parallel
-pnpm --filter @lumen/cli dev      # CLI only
+pnpm --filter lumen-kb dev        # CLI only
 pnpm --filter @lumen/web dev      # web only
 pnpm build
 pnpm lint && pnpm format:check    # pre-commit check

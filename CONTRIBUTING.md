@@ -57,7 +57,7 @@ apps/cli/src/
 Tests use temp directories to avoid writing to `~/.lumen`:
 
 ```bash
-LUMEN_DIR=$(mktemp -d) pnpm --filter @lumen/cli test
+LUMEN_DIR=$(mktemp -d) pnpm --filter lumen-kb test
 ```
 
 ## High-value contribution areas

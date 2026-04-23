@@ -12,7 +12,7 @@ Turborepo + pnpm workspaces. Three apps, shared root config.
 ```
 lumen/
 ├── apps/
-│   ├── cli/         @lumen/cli    — CLI engine + MCP server (the core product)
+│   ├── cli/         lumen-kb (published) / @lumen/cli (workspace alias) — CLI engine + MCP server
 │   ├── web/         @lumen/web    — Next.js 15 dashboard + Better Auth
 │   └── extension/   @lumen/extension — Browser extension (placeholder)
 ├── turbo.json       — Task pipeline (build, dev, lint, test)
@@ -23,17 +23,17 @@ lumen/
 
 ## Common Commands
 
-| What             | Command                                     |
-| ---------------- | ------------------------------------------- |
-| Build everything | `pnpm build`                                |
-| Dev all apps     | `pnpm dev`                                  |
-| CLI only dev     | `pnpm --filter @lumen/cli dev -- <command>` |
-| Web only dev     | `pnpm --filter @lumen/web dev`              |
-| Build CLI        | `pnpm --filter @lumen/cli build`            |
-| Lint all         | `pnpm lint`                                 |
-| Test CLI         | `pnpm --filter @lumen/cli test`             |
-| Add dep to CLI   | `pnpm --filter @lumen/cli add <pkg>`        |
-| Add dep to web   | `pnpm --filter @lumen/web add <pkg>`        |
+| What             | Command                                   |
+| ---------------- | ----------------------------------------- |
+| Build everything | `pnpm build`                              |
+| Dev all apps     | `pnpm dev`                                |
+| CLI only dev     | `pnpm --filter lumen-kb dev -- <command>` |
+| Web only dev     | `pnpm --filter @lumen/web dev`            |
+| Build CLI        | `pnpm --filter lumen-kb build`            |
+| Lint all         | `pnpm lint`                               |
+| Test CLI         | `pnpm --filter lumen-kb test`             |
+| Add dep to CLI   | `pnpm --filter lumen-kb add <pkg>`        |
+| Add dep to web   | `pnpm --filter @lumen/web add <pkg>`      |
 
 ## Cross-App Imports
 

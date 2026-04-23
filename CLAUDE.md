@@ -28,7 +28,7 @@ pnpm build                        # turbo build — builds all apps
 pnpm lint                         # turbo lint
 pnpm test                         # turbo test
 pnpm format                       # prettier on all apps
-pnpm --filter @lumen/cli dev      # CLI only
+pnpm --filter lumen-kb dev        # CLI only
 pnpm --filter @lumen/web dev      # web only
 pnpm --filter @lumen/web build    # web build
 ```

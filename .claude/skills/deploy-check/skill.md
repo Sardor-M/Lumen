@@ -9,8 +9,8 @@ Full verification across the monorepo before merging or deploying.
 
 ## Steps
 
-1. **Type check CLI**: `pnpm --filter @lumen/cli lint`
-2. **Tests**: `pnpm --filter @lumen/cli test`
+1. **Type check CLI**: `pnpm --filter lumen-kb lint`
+2. **Tests**: `pnpm --filter lumen-kb test`
 3. **Web build** (if Node ≤22): `pnpm --filter @lumen/web build`
 4. **Web lint** (if Node 23+): `pnpm --filter @lumen/web lint` (build crashes on Node 23 due to webpack WASM hash — see gotchas)
 5. **Git status**: Verify no uncommitted changes leaked

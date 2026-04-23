@@ -9,15 +9,15 @@ Systematic debugging for the Lumen knowledge base engine.
 
 ## Symptom → Investigation Map
 
-| Symptom                   | First check                                                        | Then check                                                                  |
-| ------------------------- | ------------------------------------------------------------------ | --------------------------------------------------------------------------- |
-| `lumen` command not found | `which lumen` → `npm link` from `apps/cli/`                        | Verify `apps/cli/dist/cli.js` exists (run `pnpm --filter @lumen/cli build`) |
-| MCP server hangs          | Expected — stdio servers wait silently for JSON-RPC input          | Test with: `printf '{"jsonrpc":"2.0","id":1,...}' \| lumen --mcp`           |
-| Search returns nothing    | `lumen status` — are there sources/chunks?                         | Check if FTS5 index exists: `sqlite3 ~/.lumen/lumen.db ".tables"`           |
-| Compilation fails         | Check API key: `lumen config` or `echo $ANTHROPIC_API_KEY`         | Check source has chunks: `lumen status`                                     |
-| `MODULE_NOT_FOUND` errors | `pnpm install` then `pnpm rebuild better-sqlite3`                  | Check if `/tmp/lumen-*/node_modules` symlinks exist                         |
-| Auth "Invalid origin"     | Add the dev port to `trustedOrigins` in `apps/web/src/lib/auth.ts` | Check `baseURL` matches actual URL                                          |
-| Web build crashes Node 23 | Known webpack WASM hash bug — use `next dev` instead               | Or install Node 22 LTS for production builds                                |
+| Symptom                   | First check                                                        | Then check                                                                |
+| ------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------- |
+| `lumen` command not found | `which lumen` → `npm link` from `apps/cli/`                        | Verify `apps/cli/dist/cli.js` exists (run `pnpm --filter lumen-kb build`) |
+| MCP server hangs          | Expected — stdio servers wait silently for JSON-RPC input          | Test with: `printf '{"jsonrpc":"2.0","id":1,...}' \| lumen --mcp`         |
+| Search returns nothing    | `lumen status` — are there sources/chunks?                         | Check if FTS5 index exists: `sqlite3 ~/.lumen/lumen.db ".tables"`         |
+| Compilation fails         | Check API key: `lumen config` or `echo $ANTHROPIC_API_KEY`         | Check source has chunks: `lumen status`                                   |
+| `MODULE_NOT_FOUND` errors | `pnpm install` then `pnpm rebuild better-sqlite3`                  | Check if `/tmp/lumen-*/node_modules` symlinks exist                       |
+| Auth "Invalid origin"     | Add the dev port to `trustedOrigins` in `apps/web/src/lib/auth.ts` | Check `baseURL` matches actual URL                                        |
+| Web build crashes Node 23 | Known webpack WASM hash bug — use `next dev` instead               | Or install Node 22 LTS for production builds                              |
 
 ## Quick Health Check
 

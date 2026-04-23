@@ -151,7 +151,7 @@ function buildReport(runs: CategoryRun[]): string {
     lines.push('');
     lines.push('```bash');
     lines.push('# Combined run — writes report to docs/benchmarks/');
-    lines.push('pnpm --filter @lumen/cli bench');
+    lines.push('pnpm --filter lumen-kb bench');
     lines.push('');
     lines.push('# Or run a single category:');
     for (const c of CATEGORIES) {

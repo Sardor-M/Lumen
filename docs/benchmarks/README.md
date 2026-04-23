@@ -26,15 +26,15 @@ two minutes on a modern laptop.
 pnpm bench
 
 # Or via the cli workspace
-pnpm --filter @lumen/cli bench
+pnpm --filter lumen-kb bench
 
 # Individual categories
-pnpm --filter @lumen/cli bench:ingest
-pnpm --filter @lumen/cli bench:search
-pnpm --filter @lumen/cli bench:latency
-pnpm --filter @lumen/cli bench:graph
-pnpm --filter @lumen/cli bench:mcp
-pnpm --filter @lumen/cli bench:adversarial
+pnpm --filter lumen-kb bench:ingest
+pnpm --filter lumen-kb bench:search
+pnpm --filter lumen-kb bench:latency
+pnpm --filter lumen-kb bench:graph
+pnpm --filter lumen-kb bench:mcp
+pnpm --filter lumen-kb bench:adversarial
 
 # Raw tsx — from repo root
 npx tsx benchmarks/runner/all.ts
