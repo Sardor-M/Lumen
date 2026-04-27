@@ -1,14 +1,27 @@
 import { getDb } from './database.js';
 import type { Source, SourceType } from '../types/index.js';
+import { DEFAULT_SCOPE_KIND, DEFAULT_SCOPE_KEY } from '../types/index.js';
 import { invalidateProfile } from '../profile/invalidate.js';
 
-export function insertSource(source: Source): void {
+/**
+ * Insert input is Source minus the scope fields, with scope as optional.
+ * Tier 1: callers can omit scope; the DB default (`personal:me`) applies via
+ * the explicit fallback below. Tier 2 will pass real scopes from the resolver.
+ */
+type InsertSourceInput = Omit<Source, 'scope_kind' | 'scope_key'> &
+    Partial<Pick<Source, 'scope_kind' | 'scope_key'>>;
+
+export function insertSource(source: InsertSourceInput): void {
     getDb()
         .prepare(
-            `INSERT INTO sources (id, title, url, content, content_hash, source_type, added_at, compiled_at, word_count, language, metadata)
-       VALUES (@id, @title, @url, @content, @content_hash, @source_type, @added_at, @compiled_at, @word_count, @language, @metadata)`,
+            `INSERT INTO sources (id, title, url, content, content_hash, source_type, added_at, compiled_at, word_count, language, metadata, scope_kind, scope_key)
+       VALUES (@id, @title, @url, @content, @content_hash, @source_type, @added_at, @compiled_at, @word_count, @language, @metadata, @scope_kind, @scope_key)`,
         )
-        .run(source);
+        .run({
+            ...source,
+            scope_kind: source.scope_kind ?? DEFAULT_SCOPE_KIND,
+            scope_key: source.scope_key ?? DEFAULT_SCOPE_KEY,
+        });
     invalidateProfile();
 }
 

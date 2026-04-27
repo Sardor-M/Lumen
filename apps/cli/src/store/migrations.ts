@@ -130,6 +130,29 @@ const migrations: Record<number, Migration> = {
             ALTER TABLE concepts ADD COLUMN enrichment_queued INTEGER NOT NULL DEFAULT 0;
         `);
     },
+
+    /** v10 — scope dimension on sources + concepts; scopes registry table. */
+    10: (db) => {
+        db.exec(`
+            ALTER TABLE sources  ADD COLUMN scope_kind TEXT NOT NULL DEFAULT 'personal';
+            ALTER TABLE sources  ADD COLUMN scope_key  TEXT NOT NULL DEFAULT 'me';
+            ALTER TABLE concepts ADD COLUMN scope_kind TEXT NOT NULL DEFAULT 'personal';
+            ALTER TABLE concepts ADD COLUMN scope_key  TEXT NOT NULL DEFAULT 'me';
+
+            CREATE INDEX IF NOT EXISTS idx_sources_scope  ON sources(scope_kind, scope_key);
+            CREATE INDEX IF NOT EXISTS idx_concepts_scope ON concepts(scope_kind, scope_key);
+
+            CREATE TABLE IF NOT EXISTS scopes (
+                kind         TEXT NOT NULL,
+                key          TEXT NOT NULL,
+                label        TEXT,
+                detected_at  TEXT NOT NULL,
+                last_seen_at TEXT NOT NULL,
+                metadata     TEXT,
+                PRIMARY KEY (kind, key)
+            );
+        `);
+    },
 };
 
 export function runMigrations(
