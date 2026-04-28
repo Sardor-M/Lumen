@@ -133,6 +133,33 @@ export type Concept = {
     enrichment_queued: number;
     scope_kind: ScopeKind;
     scope_key: string;
+    /**
+     * Cumulative skill score = SUM of `concept_feedback.delta` rows.
+     * Reinforced on +1, weakened on -1, auto-retired at <= -3.
+     */
+    score: number;
+    /** ISO timestamp when retired; null when active. */
+    retired_at: string | null;
+    /** Free-text reason captured at retirement. */
+    retire_reason: string | null;
+};
+
+/** Cumulative score at or below this auto-retires the concept. */
+export const RETIRE_THRESHOLD = -3;
+
+/**
+ * One vote on a concept (skill).
+ * Append-only — never edited or deleted. Score is recomputed from the sum of deltas.
+ */
+export type ConceptFeedback = {
+    id: number;
+    concept_slug: string;
+    delta: -1 | 1;
+    reason: string | null;
+    session_id: string | null;
+    /** Device that produced the feedback - load-bearing for cross-device sync (Tier 5+). */
+    device_id: string | null;
+    created_at: string;
 };
 
 export type Edge = {
