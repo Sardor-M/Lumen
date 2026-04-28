@@ -15,6 +15,7 @@ import {
     retireConcept,
 } from '../store/concepts.js';
 import { recordFeedback } from '../store/feedback.js';
+import { captureTrajectory, findReplay, TrajectoryValidationError } from '../trajectory/index.js';
 import { countEdges, getEdgesFrom, getEdgesTo } from '../store/edges.js';
 import { addLink, addBackLink, getBackLinks, getLinksFrom, countLinks } from '../store/links.js';
 import { routedSearch } from '../search/index.js';
@@ -927,6 +928,110 @@ Idempotent: re-retiring keeps the original retired_at and reason.`,
                         ),
                     },
                 ],
+            };
+        },
+    );
+
+    /** ─── Trajectory capture + replay (Tier 2b) ─── */
+
+    server.tool(
+        'capture_trajectory',
+        `Store a successful (or failed) tool-call sequence as a replayable skill.
+Call when your agent has completed a task in >= 3 tool calls and similar
+tasks are likely to recur in the same codebase.
+Defaults: scope = current cwd's codebase scope; agent = "unknown"; session
+= the active MCP session.
+Size limits: per-step result_summary <= 500 chars, per-step args <= 2 KB,
+total metadata <= 256 KB, max 50 steps - oversized fields are truncated.`,
+        {
+            task: z.string().describe('Free-text task description'),
+            steps: z
+                .array(
+                    z.object({
+                        n: z.number().optional(),
+                        tool: z.string(),
+                        args: z.record(z.string(), z.unknown()),
+                        result_summary: z.string(),
+                        result_ok: z.boolean(),
+                        elapsed_ms: z.number().nullable().optional(),
+                    }),
+                )
+                .describe('Ordered list of tool calls that produced the outcome'),
+            outcome: z.enum(['success', 'failure', 'partial']),
+            agent: z.string().optional(),
+            scope: z
+                .object({
+                    kind: z.enum(['codebase', 'framework', 'language', 'personal', 'team']),
+                    key: z.string(),
+                })
+                .optional()
+                .describe('Defaults to the current codebase scope when omitted'),
+            inputs: z
+                .object({
+                    user_prompt: z.string().optional(),
+                    files_in_context: z.array(z.string()).optional(),
+                })
+                .optional(),
+            total_tokens: z.number().nullable().optional(),
+            total_elapsed_ms: z.number().nullable().optional(),
+        },
+        async ({ task, steps, outcome, agent, scope, inputs, total_tokens, total_elapsed_ms }) => {
+            try {
+                const result = captureTrajectory({
+                    task,
+                    steps: steps.map((s) => ({
+                        ...s,
+                        elapsed_ms: s.elapsed_ms ?? null,
+                    })),
+                    outcome,
+                    agent,
+                    session_id: sessionId,
+                    scope,
+                    inputs,
+                    total_tokens: total_tokens ?? null,
+                    total_elapsed_ms: total_elapsed_ms ?? null,
+                });
+                return {
+                    content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+                };
+            } catch (err) {
+                if (err instanceof TrajectoryValidationError) {
+                    return {
+                        content: [
+                            {
+                                type: 'text' as const,
+                                text: `${err.code}: ${err.message}`,
+                            },
+                        ],
+                        isError: true,
+                    };
+                }
+                throw err;
+            }
+        },
+    );
+
+    server.tool(
+        'replay_skill',
+        `Retrieve the top-matching stored trajectory for a task in the current scope.
+Returns the step sequence as a ready-to-execute plan plus drift caveats
+(codebase revision diff, missing file references, failure outcomes).
+Treat the steps as a hint - adapt to current context, do not blindly execute.`,
+        {
+            task: z.string().describe('Task description to match against stored trajectories'),
+            scope: z
+                .object({
+                    kind: z.enum(['codebase', 'framework', 'language', 'personal', 'team']),
+                    key: z.string(),
+                })
+                .optional(),
+            min_score: z.number().optional().default(0),
+            limit: z.number().optional().default(5),
+        },
+        async ({ task, scope, min_score, limit }) => {
+            const result = findReplay(task, { scope, min_score, limit });
+            return {
+                content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
             };
         },
     );
