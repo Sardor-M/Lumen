@@ -17,8 +17,10 @@ import { searchBm25 } from '../search/bm25.js';
 import { getSource } from '../store/sources.js';
 import { findProjectRoot } from '../scope/codebase.js';
 import { resolveCodebase } from '../scope/index.js';
+import { readGitRevision } from './git.js';
 import type { ScopeKind } from '../types/index.js';
 import type { FindReplayResult, ReplayCaveat, ReplayMatch, TrajectoryMetadata } from './types.js';
+import { LIMIT_STEPS } from './validate.js';
 
 export type FindReplayOptions = {
     /** Scope to match against. Defaults to `resolveCodebase(cwd)`. */
@@ -41,8 +43,12 @@ export function findReplay(task: string, opts: FindReplayOptions = {}): FindRepl
     const limit = opts.limit ?? 5;
     const minScore = opts.min_score ?? 0;
 
-    /** Over-fetch and filter by source_type + scope. BM25 alone can't filter. */
-    const raw = searchBm25(task, limit * 6);
+    /**
+     * Over-fetch so BM25 scope/type filtering has enough candidates.
+     * Each trajectory produces up to LIMIT_STEPS + 1 chunks; multiply by limit
+     * to guarantee we see all chunks from at least `limit` distinct trajectories.
+     */
+    const raw = searchBm25(task, limit * (LIMIT_STEPS + 2));
 
     const matchesBySource = new Map<string, { score: number; metadata: TrajectoryMetadata }>();
 
@@ -152,22 +158,6 @@ function pickFilePath(args: Record<string, unknown>): string | null {
         if (typeof value === 'string' && value.length > 0) return value;
     }
     return null;
-}
-
-function readGitRevision(cwd: string): string | null {
-    const root = findProjectRoot(cwd);
-    if (!existsSync(join(root, '.git'))) return null;
-    try {
-        const sha = execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
-            cwd: root,
-            stdio: ['ignore', 'pipe', 'ignore'],
-            encoding: 'utf-8',
-            timeout: 2000,
-        }).trim();
-        return sha || null;
-    } catch {
-        return null;
-    }
 }
 
 function countCommitsBetween(cwd: string, from: string, to: string): number | null {

@@ -15,14 +15,11 @@
  * `sources.metadata` (for structured replay).
  */
 
-import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
 import { insertSource } from '../store/sources.js';
 import { insertChunks } from '../store/chunks.js';
 import { upsertScope } from '../store/scopes.js';
 import { resolveCodebase } from '../scope/index.js';
-import { findProjectRoot } from '../scope/codebase.js';
+import { readGitRevision } from './git.js';
 import { shortId, contentHash } from '../utils/hash.js';
 import { estimateTokens } from '../compress/tokenizer.js';
 import type { Chunk, ScopeKind } from '../types/index.js';
@@ -186,18 +183,3 @@ function renderArgsForFts(args: Record<string, unknown>): string {
     return joined.length > 200 ? joined.slice(0, 197) + '...' : joined;
 }
 
-function readGitRevision(cwd: string): string | null {
-    const root = findProjectRoot(cwd);
-    if (!existsSync(join(root, '.git'))) return null;
-    try {
-        const sha = execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
-            cwd: root,
-            stdio: ['ignore', 'pipe', 'ignore'],
-            encoding: 'utf-8',
-            timeout: 2000,
-        }).trim();
-        return sha || null;
-    } catch {
-        return null;
-    }
-}
