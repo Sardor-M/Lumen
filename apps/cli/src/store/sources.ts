@@ -4,14 +4,23 @@ import { DEFAULT_SCOPE_KIND, DEFAULT_SCOPE_KEY } from '../types/index.js';
 import { invalidateProfile } from '../profile/invalidate.js';
 
 /**
- * Insert input is Source minus the scope fields, with scope as optional.
- * Tier 1: callers can omit scope; the DB default (`personal:me`) applies via
- * the explicit fallback below. Tier 2 will pass real scopes from the resolver.
+ * Insert input is Source minus the scope fields, with scope as all-or-nothing.
+ * Tier 1: callers can omit both scope fields and get `personal:me` by default.
+ * Tier 2 will pass real scopes from the resolver. Providing only one of the
+ * two fields is a caller error and throws at runtime.
  */
 type InsertSourceInput = Omit<Source, 'scope_kind' | 'scope_key'> &
-    Partial<Pick<Source, 'scope_kind' | 'scope_key'>>;
+    (
+        | { scope_kind?: undefined; scope_key?: undefined }
+        | { scope_kind: Source['scope_kind']; scope_key: string }
+    );
 
 export function insertSource(source: InsertSourceInput): void {
+    const hasKind = source.scope_kind != null;
+    const hasKey = source.scope_key != null;
+    if (hasKind !== hasKey) {
+        throw new Error('scope_kind and scope_key must be provided together or not at all');
+    }
     getDb()
         .prepare(
             `INSERT INTO sources (id, title, url, content, content_hash, source_type, added_at, compiled_at, word_count, language, metadata, scope_kind, scope_key)
