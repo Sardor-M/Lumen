@@ -1,0 +1,390 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { setDataDir, resetDataDir } from '../src/utils/paths.js';
+import { getDb, resetDb } from '../src/store/database.js';
+import {
+    jaccardSimilarity,
+    slugEditDistance,
+    slugSimilarity,
+    findMergeCandidate,
+    SLUG_SIM_THRESHOLD,
+    CONTENT_SIM_THRESHOLD,
+} from '../src/dedup/index.js';
+import type { MergeCandidate } from '../src/dedup/index.js';
+import { upsertConcept, getConcept, getActiveConcept } from '../src/store/concepts.js';
+import { recordAlias, resolveAlias, listAliases, countAliases } from '../src/store/aliases.js';
+import { recordFeedback } from '../src/store/feedback.js';
+
+let tempDir: string;
+
+beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'lumen-dedup-'));
+    setDataDir(tempDir);
+    getDb();
+});
+
+afterEach(() => {
+    resetDb();
+    resetDataDir();
+    rmSync(tempDir, { recursive: true, force: true });
+});
+
+function seedConcept(slug: string, opts?: { name?: string; truth?: string; scope_key?: string }) {
+    const now = new Date().toISOString();
+    upsertConcept({
+        slug,
+        name: opts?.name ?? slug,
+        summary: opts?.truth ?? null,
+        compiled_truth: opts?.truth ?? null,
+        article: null,
+        created_at: now,
+        updated_at: now,
+        mention_count: 1,
+        scope_kind: 'codebase',
+        scope_key: opts?.scope_key ?? 'repo-a',
+    });
+}
+
+/** ─── Pure similarity primitives ─── */
+
+describe('jaccardSimilarity', () => {
+    it('returns 1 for identical content', () => {
+        expect(jaccardSimilarity('hello world test', 'hello world test')).toBe(1);
+    });
+
+    it('returns 0 for disjoint token sets', () => {
+        expect(jaccardSimilarity('alpha beta gamma', 'foo bar baz')).toBe(0);
+    });
+
+    it('returns 0 for empty input on either side', () => {
+        expect(jaccardSimilarity('', 'hello world')).toBe(0);
+        expect(jaccardSimilarity('hello world', '')).toBe(0);
+        expect(jaccardSimilarity('', '')).toBe(0);
+    });
+
+    it('handles partial overlap', () => {
+        const sim = jaccardSimilarity('alpha beta gamma', 'beta gamma delta');
+        expect(sim).toBeCloseTo(2 / 4, 3);
+    });
+
+    it('is order-independent', () => {
+        const a = jaccardSimilarity('foo bar baz', 'baz foo bar');
+        expect(a).toBe(1);
+    });
+});
+
+describe('slugEditDistance', () => {
+    it('is 0 for identical slugs', () => {
+        expect(slugEditDistance('attention', 'attention')).toBe(0);
+    });
+
+    it('counts single character substitution as 1', () => {
+        expect(slugEditDistance('cat', 'bat')).toBe(1);
+    });
+
+    it('handles empty inputs', () => {
+        expect(slugEditDistance('', 'abc')).toBe(3);
+        expect(slugEditDistance('abc', '')).toBe(3);
+    });
+
+    it('matches a known reference distance', () => {
+        /** kitten -> sitting: 3 edits (k->s, e->i, +g). */
+        expect(slugEditDistance('kitten', 'sitting')).toBe(3);
+    });
+});
+
+describe('slugSimilarity', () => {
+    it('returns 1 for identical', () => {
+        expect(slugSimilarity('foo', 'foo')).toBe(1);
+    });
+
+    it('returns 0 for completely different of same length', () => {
+        expect(slugSimilarity('abc', 'xyz')).toBe(0);
+    });
+
+    it('is symmetric', () => {
+        expect(slugSimilarity('add-route', 'add-routes')).toBe(
+            slugSimilarity('add-routes', 'add-route'),
+        );
+    });
+});
+
+/** ─── Policy: findMergeCandidate ─── */
+
+describe('findMergeCandidate', () => {
+    function candidate(over: Partial<MergeCandidate>): MergeCandidate {
+        return {
+            slug: 'ref',
+            content: 'ref content',
+            score: 0,
+            mention_count: 1,
+            retired_at: null,
+            ...over,
+        };
+    }
+
+    it('returns no_candidates when the candidate list is empty', () => {
+        const d = findMergeCandidate({ slug: 'foo', content: 'x' }, []);
+        expect(d.merge).toBe(false);
+        if (!d.merge) expect(d.reason).toBe('no_candidates');
+    });
+
+    it('returns no_candidates when the only candidate is the same slug', () => {
+        const d = findMergeCandidate(
+            { slug: 'attention', content: 'self-attention is all you need' },
+            [candidate({ slug: 'attention', content: 'self-attention is all you need' })],
+        );
+        expect(d.merge).toBe(false);
+    });
+
+    it('skips retired candidates', () => {
+        const d = findMergeCandidate(
+            { slug: 'add-route', content: 'register a new route in the express app' },
+            [
+                candidate({
+                    slug: 'add-routes',
+                    content: 'register a new route in the express app',
+                    retired_at: '2026-04-25T00:00:00Z',
+                }),
+            ],
+        );
+        expect(d.merge).toBe(false);
+    });
+
+    it('merges when slug + content both clear thresholds', () => {
+        const d = findMergeCandidate(
+            { slug: 'add-route', content: 'register a new route in the express app server' },
+            [
+                candidate({
+                    slug: 'add-routes',
+                    content: 'register a new route in the express app server',
+                }),
+            ],
+        );
+        expect(d.merge).toBe(true);
+        if (d.merge) {
+            expect(d.canonical.slug).toBe('add-routes');
+            expect(d.slug_sim).toBeGreaterThanOrEqual(SLUG_SIM_THRESHOLD);
+            expect(d.content_sim).toBeGreaterThanOrEqual(CONTENT_SIM_THRESHOLD);
+        }
+    });
+
+    it('does NOT merge when slugs are similar but content diverges', () => {
+        /** react-hooks vs react-router: similar slug, completely different content. */
+        const d = findMergeCandidate(
+            {
+                slug: 'react-hooks',
+                content: 'useState useEffect useMemo functional state management',
+            },
+            [
+                candidate({
+                    slug: 'react-router',
+                    content: 'navigation routing path matching browser history nested routes',
+                }),
+            ],
+        );
+        expect(d.merge).toBe(false);
+        if (!d.merge) expect(d.reason).toBe('below_threshold');
+    });
+
+    it('does NOT merge when content matches but slugs are very different', () => {
+        const d = findMergeCandidate(
+            { slug: 'completely-different-slug', content: 'shared identical content body' },
+            [candidate({ slug: 'totally-other-name', content: 'shared identical content body' })],
+        );
+        expect(d.merge).toBe(false);
+    });
+
+    it('picks the higher-scored canonical when multiple candidates clear', () => {
+        const d = findMergeCandidate(
+            { slug: 'add-route', content: 'register a new route in the express app' },
+            [
+                candidate({
+                    slug: 'add-routes',
+                    content: 'register a new route in the express app',
+                    score: 1,
+                    mention_count: 5,
+                }),
+                candidate({
+                    slug: 'add-route-v2',
+                    content: 'register a new route in the express app',
+                    score: 7,
+                    mention_count: 2,
+                }),
+            ],
+        );
+        expect(d.merge).toBe(true);
+        if (d.merge) expect(d.canonical.slug).toBe('add-route-v2');
+    });
+});
+
+/** ─── Aliases store ─── */
+
+describe('aliases store', () => {
+    it('recordAlias inserts a row that resolveAlias follows', () => {
+        seedConcept('canonical-slug');
+        recordAlias({
+            alias: 'incoming-slug',
+            canonical_slug: 'canonical-slug',
+            scope_kind: 'codebase',
+            scope_key: 'repo-a',
+        });
+        expect(resolveAlias('incoming-slug')).toBe('canonical-slug');
+        expect(resolveAlias('canonical-slug')).toBe('canonical-slug');
+        expect(resolveAlias('not-aliased')).toBe('not-aliased');
+    });
+
+    it('recordAlias is idempotent (second insert preserves first canonical)', () => {
+        seedConcept('a-canon');
+        seedConcept('b-canon');
+        recordAlias({
+            alias: 'shared',
+            canonical_slug: 'a-canon',
+            scope_kind: 'codebase',
+            scope_key: 'repo-a',
+        });
+        recordAlias({
+            alias: 'shared',
+            canonical_slug: 'b-canon',
+            scope_kind: 'codebase',
+            scope_key: 'repo-a',
+        });
+        expect(resolveAlias('shared')).toBe('a-canon');
+    });
+
+    it('listAliases returns aliases pointing at a canonical', () => {
+        seedConcept('hub');
+        recordAlias({
+            alias: 'spoke-1',
+            canonical_slug: 'hub',
+            scope_kind: 'codebase',
+            scope_key: 'repo-a',
+        });
+        recordAlias({
+            alias: 'spoke-2',
+            canonical_slug: 'hub',
+            scope_kind: 'codebase',
+            scope_key: 'repo-a',
+        });
+        const list = listAliases('hub');
+        expect(list.length).toBe(2);
+        expect(list.map((a) => a.alias).sort()).toEqual(['spoke-1', 'spoke-2']);
+    });
+});
+
+/** ─── upsertConcept merge-on-write integration ─── */
+
+describe('upsertConcept merge-on-write', () => {
+    it('inserts a fresh concept when no near-duplicates exist in scope', () => {
+        seedConcept('attention', { truth: 'self-attention mechanism in transformers' });
+        seedConcept('react-hooks', { truth: 'useState useEffect functional state' });
+        expect(getConcept('attention')?.slug).toBe('attention');
+        expect(getConcept('react-hooks')?.slug).toBe('react-hooks');
+        expect(countAliases()).toBe(0);
+    });
+
+    it('merges incoming into existing canonical when slug + content cross thresholds', () => {
+        seedConcept('add-route', {
+            truth: 'register a new route in the express server with app dot get',
+        });
+        seedConcept('add-routes', {
+            truth: 'register a new route in the express server with app dot get',
+        });
+
+        /** Second concept should NOT exist as a separate row. */
+        const list = getDb()
+            .prepare("SELECT slug FROM concepts WHERE slug IN ('add-route', 'add-routes')")
+            .all() as Array<{ slug: string }>;
+        expect(list.length).toBe(1);
+        expect(list[0].slug).toBe('add-route');
+
+        /** And the alias should resolve. */
+        expect(resolveAlias('add-routes')).toBe('add-route');
+        expect(getConcept('add-routes')?.slug).toBe('add-route');
+    });
+
+    it('does NOT merge across scopes', () => {
+        seedConcept('add-route', {
+            truth: 'register a new route in the express server with app dot get',
+            scope_key: 'repo-a',
+        });
+        seedConcept('add-routes', {
+            truth: 'register a new route in the express server with app dot get',
+            scope_key: 'repo-b',
+        });
+
+        expect(getConcept('add-route')?.slug).toBe('add-route');
+        expect(getConcept('add-routes')?.slug).toBe('add-routes');
+        expect(countAliases()).toBe(0);
+    });
+
+    it('does NOT merge into a retired canonical', () => {
+        seedConcept('orig-slug', { truth: 'shared body content for the merge test scenario' });
+        /** Drive orig-slug into retirement. */
+        recordFeedback({ slug: 'orig-slug', delta: -1 });
+        recordFeedback({ slug: 'orig-slug', delta: -1 });
+        recordFeedback({ slug: 'orig-slug', delta: -1 });
+        expect(getConcept('orig-slug')?.retired_at).not.toBeNull();
+
+        seedConcept('orig-slugs', { truth: 'shared body content for the merge test scenario' });
+
+        /** A new active row should exist; no alias was recorded. */
+        expect(getActiveConcept('orig-slugs')?.slug).toBe('orig-slugs');
+        expect(resolveAlias('orig-slugs')).toBe('orig-slugs');
+    });
+
+    it('preserves the canonical score on merge (no reset)', () => {
+        seedConcept('canon', { truth: 'shared identical content body for both' });
+        recordFeedback({ slug: 'canon', delta: 1 });
+        recordFeedback({ slug: 'canon', delta: 1 });
+        expect(getConcept('canon')?.score).toBe(2);
+
+        seedConcept('canons', { truth: 'shared identical content body for both' });
+        const c = getConcept('canon');
+        expect(c?.score).toBe(2);
+        expect(c?.mention_count).toBeGreaterThanOrEqual(2);
+    });
+
+    it('exact-slug re-upsert still hits the existing ON CONFLICT path', () => {
+        seedConcept('exact', { truth: 'first writing of the concept' });
+        const before = getConcept('exact');
+        seedConcept('exact', { truth: 'second writing of the same concept' });
+        const after = getConcept('exact');
+        /** mention_count incremented; no alias created. */
+        expect(after?.mention_count).toBe((before?.mention_count ?? 0) + 1);
+        expect(countAliases()).toBe(0);
+    });
+
+    it('higher-scored existing wins as canonical when multiple near-duplicates exist', () => {
+        seedConcept('lower', { truth: 'shared narrative about the same topic identical' });
+        seedConcept('highers', { truth: 'shared narrative about the same topic identical' });
+        recordFeedback({ slug: 'highers', delta: 1 });
+        recordFeedback({ slug: 'highers', delta: 1 });
+        /** Now upsert a third near-duplicate — should fold into 'highers' (highest score). */
+        seedConcept('higher', { truth: 'shared narrative about the same topic identical' });
+        expect(resolveAlias('higher')).toBe('highers');
+    });
+});
+
+/** ─── getConcept follows aliases ─── */
+
+describe('getConcept transparently follows aliases', () => {
+    it('returns the canonical row for an aliased slug', () => {
+        seedConcept('canonical-form', { truth: 'rich content describing this concept thoroughly' });
+        recordAlias({
+            alias: 'aliased-form',
+            canonical_slug: 'canonical-form',
+            scope_kind: 'codebase',
+            scope_key: 'repo-a',
+        });
+        const c = getConcept('aliased-form');
+        expect(c?.slug).toBe('canonical-form');
+        expect(c?.compiled_truth).toContain('rich content');
+    });
+
+    it('returns null when neither the slug nor any alias resolves', () => {
+        expect(getConcept('does-not-exist-slug')).toBeNull();
+    });
+});
