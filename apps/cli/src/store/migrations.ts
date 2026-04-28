@@ -153,6 +153,30 @@ const migrations: Record<number, Migration> = {
             );
         `);
     },
+
+    /** v11 — concept scoring + retirement; concept_feedback append-only log. */
+    11: (db) => {
+        db.exec(`
+            ALTER TABLE concepts ADD COLUMN score         INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE concepts ADD COLUMN retired_at    TEXT;
+            ALTER TABLE concepts ADD COLUMN retire_reason TEXT;
+
+            CREATE INDEX IF NOT EXISTS idx_concepts_score   ON concepts(score);
+            CREATE INDEX IF NOT EXISTS idx_concepts_retired ON concepts(retired_at);
+
+            CREATE TABLE IF NOT EXISTS concept_feedback (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                concept_slug TEXT NOT NULL REFERENCES concepts(slug) ON DELETE CASCADE,
+                delta        INTEGER NOT NULL CHECK (delta IN (-1, 1)),
+                reason       TEXT,
+                session_id   TEXT,
+                device_id    TEXT,
+                created_at   TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_feedback_concept ON concept_feedback(concept_slug);
+        `);
+    },
 };
 
 export function runMigrations(

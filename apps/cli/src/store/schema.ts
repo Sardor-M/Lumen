@@ -8,8 +8,9 @@ import type Database from 'better-sqlite3';
  * v8 — self-improving classifiers (classifier_patterns + classifier_fallbacks tables)
  * v9 — tiered entity enrichment (enrichment_tier, last_enriched_at, enrichment_queued on concepts)
  * v10 — scope dimension (scope_kind, scope_key on sources + concepts; scopes registry table)
+ * v11 — concept scoring + retirement (score, retired_at, retire_reason on concepts; concept_feedback table)
  */
-const CURRENT_VERSION = 10;
+const CURRENT_VERSION = 11;
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS sources (
@@ -83,10 +84,27 @@ const SCHEMA = `
     last_enriched_at  TEXT,
     enrichment_queued INTEGER NOT NULL DEFAULT 0,
     scope_kind TEXT NOT NULL DEFAULT 'personal',
-    scope_key  TEXT NOT NULL DEFAULT 'me'
+    scope_key  TEXT NOT NULL DEFAULT 'me',
+    score         INTEGER NOT NULL DEFAULT 0,
+    retired_at    TEXT,
+    retire_reason TEXT
   );
 
-  CREATE INDEX IF NOT EXISTS idx_concepts_scope ON concepts(scope_kind, scope_key);
+  CREATE INDEX IF NOT EXISTS idx_concepts_scope    ON concepts(scope_kind, scope_key);
+  CREATE INDEX IF NOT EXISTS idx_concepts_score    ON concepts(score);
+  CREATE INDEX IF NOT EXISTS idx_concepts_retired  ON concepts(retired_at);
+
+  CREATE TABLE IF NOT EXISTS concept_feedback (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    concept_slug TEXT NOT NULL REFERENCES concepts(slug) ON DELETE CASCADE,
+    delta        INTEGER NOT NULL CHECK (delta IN (-1, 1)),
+    reason       TEXT,
+    session_id   TEXT,
+    device_id    TEXT,
+    created_at   TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_feedback_concept ON concept_feedback(concept_slug);
 
   CREATE TABLE IF NOT EXISTS scopes (
     kind         TEXT NOT NULL,

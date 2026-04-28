@@ -6,7 +6,7 @@ import type {
     TimelineEntry,
     EnrichmentTier,
 } from '../types/index.js';
-import { DEFAULT_SCOPE_KIND, DEFAULT_SCOPE_KEY } from '../types/index.js';
+import { DEFAULT_SCOPE_KIND, DEFAULT_SCOPE_KEY, RETIRE_THRESHOLD } from '../types/index.js';
 import { invalidateProfile } from '../profile/invalidate.js';
 
 /** Parse the raw `timeline` JSON column into a typed array, newest first. */
@@ -37,6 +37,9 @@ function rowToConcept(row: Record<string, unknown>): Concept {
         enrichment_queued: (row.enrichment_queued as number) ?? 0,
         scope_kind: ((row.scope_kind as ScopeKind | null) ?? DEFAULT_SCOPE_KIND) as ScopeKind,
         scope_key: (row.scope_key as string | null) ?? DEFAULT_SCOPE_KEY,
+        score: (row.score as number | null) ?? 0,
+        retired_at: (row.retired_at as string | null) ?? null,
+        retire_reason: (row.retire_reason as string | null) ?? null,
     };
 }
 
@@ -49,6 +52,9 @@ export function upsertConcept(
         | 'enrichment_queued'
         | 'scope_kind'
         | 'scope_key'
+        | 'score'
+        | 'retired_at'
+        | 'retire_reason'
     > & {
         timeline?: TimelineEntry[];
         scope_kind?: ScopeKind;
@@ -89,11 +95,78 @@ export function getConcept(slug: string): Concept | null {
     return row ? rowToConcept(row) : null;
 }
 
+/**
+ * Return the concept only when active (not retired). Use this from skill-substrate
+ * paths like brain_ops where retired concepts should be invisible. The plain
+ * `getConcept` still returns retired rows so explicit lookups can surface
+ * `retired_at` / `retire_reason` to the agent.
+ */
+export function getActiveConcept(slug: string): Concept | null {
+    const concept = getConcept(slug);
+    if (!concept || concept.retired_at !== null) return null;
+    return concept;
+}
+
 export function listConcepts(): Concept[] {
     const rows = getDb()
         .prepare('SELECT * FROM concepts ORDER BY mention_count DESC')
         .all() as Record<string, unknown>[];
     return rows.map(rowToConcept);
+}
+
+/**
+ * Overwrite the cumulative score for a concept. Auto-retires when the new
+ * score crosses the retire threshold (using `reason` if provided, else a
+ * generic system reason). Idempotent - calling with an already-retired
+ * concept's score below threshold does not re-stamp `retired_at`.
+ */
+export function updateScore(slug: string, score: number, reason?: string | null): void {
+    const db = getDb();
+    const existing = db.prepare('SELECT retired_at FROM concepts WHERE slug = ?').get(slug) as
+        | { retired_at: string | null }
+        | undefined;
+    if (!existing) return;
+
+    const shouldRetire = score <= RETIRE_THRESHOLD && existing.retired_at === null;
+
+    if (shouldRetire) {
+        db.prepare(
+            `UPDATE concepts
+             SET score = ?, retired_at = ?, retire_reason = ?
+             WHERE slug = ?`,
+        ).run(
+            score,
+            new Date().toISOString(),
+            reason ?? 'auto-retired: score below threshold',
+            slug,
+        );
+    } else {
+        db.prepare('UPDATE concepts SET score = ? WHERE slug = ?').run(score, slug);
+    }
+    invalidateProfile();
+}
+
+/**
+ * Explicitly retire a concept. Idempotent - re-retiring keeps the original
+ * `retired_at` timestamp and reason intact.
+ */
+export function retireConcept(slug: string, reason: string): void {
+    const db = getDb();
+    db.prepare(
+        `UPDATE concepts
+         SET retired_at = COALESCE(retired_at, ?),
+             retire_reason = COALESCE(retire_reason, ?)
+         WHERE slug = ?`,
+    ).run(new Date().toISOString(), reason, slug);
+    invalidateProfile();
+}
+
+/** Bring a concept back from retirement. Clears both `retired_at` and `retire_reason`. */
+export function unretireConcept(slug: string): void {
+    getDb()
+        .prepare('UPDATE concepts SET retired_at = NULL, retire_reason = NULL WHERE slug = ?')
+        .run(slug);
+    invalidateProfile();
 }
 
 export function updateArticle(slug: string, article: string): void {
