@@ -8,10 +8,13 @@ import { countChunks, totalTokens, insertChunks } from '../store/chunks.js';
 import {
     countConcepts,
     getConcept,
+    getActiveConcept,
     getConceptSources,
     upsertConcept,
     appendTimeline,
+    retireConcept,
 } from '../store/concepts.js';
+import { recordFeedback } from '../store/feedback.js';
 import { countEdges, getEdgesFrom, getEdgesTo } from '../store/edges.js';
 import { addLink, addBackLink, getBackLinks, getLinksFrom, countLinks } from '../store/links.js';
 import { routedSearch } from '../search/index.js';
@@ -835,6 +838,99 @@ a notable fact about a concept. The brain grows automatically.`,
         },
     );
 
+    /** ─── Skill scoring (Tier 2a) ─── */
+
+    server.tool(
+        'brain_feedback',
+        `Record a +1 or -1 vote on a concept (skill) with an optional reason.
++1 reinforces the skill. -1 with a reason captures why the skill was wrong
+or unhelpful — the reason is load-bearing because it lets a future review
+pass edit the skill instead of just retiring it.
+Cumulative score <= -3 auto-retires the concept; the most recent negative
+reason becomes the retirement reason.`,
+        {
+            slug: z.string().describe('Concept slug to vote on'),
+            delta: z
+                .union([z.literal(1), z.literal(-1), z.literal('+1'), z.literal('-1')])
+                .describe('Vote direction'),
+            reason: z.string().optional().describe('Why - load-bearing for downvotes'),
+        },
+        async ({ slug, delta, reason }) => {
+            const numericDelta: -1 | 1 = delta === 1 || delta === '+1' ? 1 : -1;
+            const concept = getConcept(slug);
+            if (!concept) {
+                return {
+                    content: [{ type: 'text' as const, text: `Concept "${slug}" not found.` }],
+                    isError: true,
+                };
+            }
+            const result = recordFeedback({
+                slug,
+                delta: numericDelta,
+                reason: reason ?? null,
+                session_id: sessionId,
+            });
+            return {
+                content: [
+                    {
+                        type: 'text' as const,
+                        text: JSON.stringify(
+                            {
+                                slug,
+                                delta: numericDelta,
+                                new_score: result.new_score,
+                                retired: result.retired,
+                                feedback_id: result.feedback_id,
+                            },
+                            null,
+                            2,
+                        ),
+                    },
+                ],
+            };
+        },
+    );
+
+    server.tool(
+        'retire_skill',
+        `Explicitly retire a concept with a reason. Soft delete - the row and
+its timeline / feedback history remain queryable, but the concept is
+hidden from skill-substrate retrieval (brain_ops, search, ask).
+Idempotent: re-retiring keeps the original retired_at and reason.`,
+        {
+            slug: z.string().describe('Concept slug to retire'),
+            reason: z.string().describe('Why this skill is being retired'),
+        },
+        async ({ slug, reason }) => {
+            const concept = getConcept(slug);
+            if (!concept) {
+                return {
+                    content: [{ type: 'text' as const, text: `Concept "${slug}" not found.` }],
+                    isError: true,
+                };
+            }
+            retireConcept(slug, reason);
+            const updated = getConcept(slug);
+            return {
+                content: [
+                    {
+                        type: 'text' as const,
+                        text: JSON.stringify(
+                            {
+                                slug,
+                                retired_at: updated?.retired_at,
+                                retire_reason: updated?.retire_reason,
+                                already_retired: concept.retired_at !== null,
+                            },
+                            null,
+                            2,
+                        ),
+                    },
+                ],
+            };
+        },
+    );
+
     /** ─── Brain Ops — single agent entry point (Phase 8) ─── */
 
     server.tool(
@@ -865,7 +961,8 @@ Agents should call this automatically — it is the entry point to the brain.`,
                     .replace(/^(tell me about|explain|describe)\s+/i, '')
                     .trim();
                 const slug = toSlug(raw);
-                const concept = getConcept(slug);
+                /** Skip retired concepts in skill-substrate retrieval. */
+                const concept = getActiveConcept(slug);
                 if (concept) {
                     logQuery({
                         tool_name: 'brain_ops',
@@ -886,6 +983,7 @@ Agents should call this automatically — it is the entry point to the brain.`,
                                         name: concept.name,
                                         compiled_truth: concept.compiled_truth ?? concept.summary,
                                         mention_count: concept.mention_count,
+                                        score: concept.score,
                                         outgoing_edges: getEdgesFrom(slug).slice(0, 8),
                                         incoming_edges: getEdgesTo(slug).slice(0, 8),
                                     },
@@ -896,7 +994,7 @@ Agents should call this automatically — it is the entry point to the brain.`,
                         ],
                     };
                 }
-                /** Fall through to hybrid search if no exact concept match. */
+                /** Fall through to hybrid search if no exact (active) concept match. */
             }
 
             /** ── Graph path ── */
