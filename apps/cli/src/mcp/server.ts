@@ -756,6 +756,13 @@ a notable fact about a concept. The brain grows automatically.`,
                 ),
         },
         async ({ type, title, content, related_slugs, source_context }) => {
+            const titleScrub = scrubPii(title, { strict: true });
+            if (!titleScrub.ok) {
+                return {
+                    content: [{ type: 'text' as const, text: titleScrub.reason }],
+                    isError: true,
+                };
+            }
             const contentScrub = scrubPii(content);
             if (!contentScrub.ok) {
                 return {
@@ -771,16 +778,18 @@ a notable fact about a concept. The brain grows automatically.`,
                 };
             }
 
+            const cleanTitle = titleScrub.content;
             const cleanContent = contentScrub.content;
             const cleanContext = source_context !== undefined ? contextScrub.content : undefined;
-            const totalRedactions = contentScrub.redactions + contextScrub.redactions;
+            const totalRedactions =
+                titleScrub.redactions + contentScrub.redactions + contextScrub.redactions;
 
-            const slug = toSlug(title);
+            const slug = toSlug(cleanTitle);
             const now = new Date().toISOString();
 
             upsertConcept({
                 slug,
-                name: title,
+                name: cleanTitle,
                 summary: cleanContent,
                 compiled_truth: cleanContent,
                 article: null,
@@ -817,6 +826,7 @@ a notable fact about a concept. The brain grows automatically.`,
                                 linked_to: related_slugs ?? [],
                                 redactions: totalRedactions,
                                 redacted_patterns: {
+                                    ...titleScrub.by_pattern,
                                     ...contentScrub.by_pattern,
                                     ...contextScrub.by_pattern,
                                 },
