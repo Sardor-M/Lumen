@@ -50,13 +50,11 @@ function canonicalize(rawUrl: string): string | null {
     url.search = '';
     url.hash = '';
 
-    /** Coerce ssh://, git+ssh://, etc. to https://. */
-    if (url.protocol !== 'https:' && url.protocol !== 'http:') {
-        url.protocol = 'https:';
-    }
+    /** Coerce all schemes (ssh://, git+ssh://, http://, etc.) to https://. */
+    url.protocol = 'https:';
 
-    /** Drop the port if it's the default for the protocol. */
-    if (url.port === '443' || url.port === '80') {
+    /** Drop port 443 — the default for https. */
+    if (url.port === '443') {
         url.port = '';
     }
 
