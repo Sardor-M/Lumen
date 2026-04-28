@@ -1,7 +1,12 @@
 import { getDb } from './database.js';
+import { resolveAlias } from './aliases.js';
 import type { ConceptLink, LinkType } from '../types/index.js';
 
-/** Insert a directional link between two concepts. Silently ignores duplicates. */
+/**
+ * Insert a directional link between two concepts. Silently ignores duplicates.
+ * Both slugs are resolved through the alias table first so callers passing an
+ * aliased slug land the link on the canonical concept.
+ */
 export function addLink(
     fromSlug: string,
     toSlug: string,
@@ -9,13 +14,15 @@ export function addLink(
     context: string | null = null,
     sourceId: string | null = null,
 ): void {
+    const from = resolveAlias(fromSlug);
+    const to = resolveAlias(toSlug);
     getDb()
         .prepare(
             `INSERT OR IGNORE INTO concept_links
                (from_slug, to_slug, link_type, context, source_id, created_at)
              VALUES (?, ?, ?, ?, ?, ?)`,
         )
-        .run(fromSlug, toSlug, linkType, context, sourceId, new Date().toISOString());
+        .run(from, to, linkType, context, sourceId, new Date().toISOString());
 }
 
 /**
@@ -39,11 +46,12 @@ export function removeLink(fromSlug: string, toSlug: string, linkType: LinkType)
             `DELETE FROM concept_links
              WHERE from_slug = ? AND to_slug = ? AND link_type = ?`,
         )
-        .run(fromSlug, toSlug, linkType);
+        .run(resolveAlias(fromSlug), resolveAlias(toSlug), linkType);
 }
 
 /** Get all outgoing links from a concept, optionally filtered by type. */
 export function getLinksFrom(slug: string, type?: LinkType): ConceptLink[] {
+    const resolved = resolveAlias(slug);
     const db = getDb();
     if (type) {
         return db
@@ -52,7 +60,7 @@ export function getLinksFrom(slug: string, type?: LinkType): ConceptLink[] {
                  WHERE from_slug = ? AND link_type = ?
                  ORDER BY id DESC`,
             )
-            .all(slug, type) as ConceptLink[];
+            .all(resolved, type) as ConceptLink[];
     }
     return db
         .prepare(
@@ -60,18 +68,19 @@ export function getLinksFrom(slug: string, type?: LinkType): ConceptLink[] {
              WHERE from_slug = ?
              ORDER BY id DESC`,
         )
-        .all(slug) as ConceptLink[];
+        .all(resolved) as ConceptLink[];
 }
 
 /** Get all links that point TO a concept — the back-link index. */
 export function getBackLinks(slug: string): ConceptLink[] {
+    const resolved = resolveAlias(slug);
     return getDb()
         .prepare(
             `SELECT * FROM concept_links
              WHERE to_slug = ?
              ORDER BY created_at DESC`,
         )
-        .all(slug) as ConceptLink[];
+        .all(resolved) as ConceptLink[];
 }
 
 export function countLinks(): number {

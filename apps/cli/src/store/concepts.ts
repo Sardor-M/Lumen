@@ -8,6 +8,9 @@ import type {
 } from '../types/index.js';
 import { DEFAULT_SCOPE_KIND, DEFAULT_SCOPE_KEY, RETIRE_THRESHOLD } from '../types/index.js';
 import { invalidateProfile } from '../profile/invalidate.js';
+import { findMergeCandidate } from '../dedup/index.js';
+import type { MergeCandidate } from '../dedup/index.js';
+import { recordAlias, resolveAlias } from './aliases.js';
 
 /** Parse the raw `timeline` JSON column into a typed array, newest first. */
 function parseTimeline(raw: unknown): TimelineEntry[] {
@@ -61,9 +64,60 @@ export function upsertConcept(
         scope_key?: string;
     },
 ): void {
-    getDb()
-        .prepare(
-            `INSERT INTO concepts (slug, name, summary, compiled_truth, article, created_at, updated_at, mention_count, scope_kind, scope_key)
+    const db = getDb();
+    const scope_kind = concept.scope_kind ?? DEFAULT_SCOPE_KIND;
+    const scope_key = concept.scope_key ?? DEFAULT_SCOPE_KEY;
+
+    /**
+     * Resolve the incoming slug through the alias table first. If it points
+     * at a canonical, the upsert applies to that canonical row directly via
+     * the ON CONFLICT path - no re-scan, no risk of inserting a fresh row
+     * that gets shadowed by an existing alias.
+     */
+    const targetSlug = resolveAlias(concept.slug);
+
+    /**
+     * Merge-on-write: when the incoming slug is new (no exact-slug conflict
+     * waiting to fire ON CONFLICT, and not an alias) but a near-duplicate
+     * exists in the same scope, fold the incoming data into the canonical
+     * concept and record an alias so future lookups for the incoming slug
+     * resolve to the same row.
+     *
+     * Skip the scan when the slug is already known - the existing ON CONFLICT
+     * path is faster and semantically identical to "the user re-captured the
+     * same concept".
+     */
+    const knownSlug =
+        targetSlug !== concept.slug ||
+        (db.prepare('SELECT 1 AS found FROM concepts WHERE slug = ?').get(concept.slug) as
+            | { found: number }
+            | undefined) !== undefined;
+
+    if (!knownSlug) {
+        const incomingContent = concept.compiled_truth ?? concept.summary ?? concept.name ?? '';
+        const candidates = listMergeCandidates(scope_kind, scope_key);
+        const decision = findMergeCandidate(
+            { slug: concept.slug, content: incomingContent },
+            candidates,
+        );
+
+        if (decision.merge) {
+            mergeIntoCanonical({
+                incomingSlug: concept.slug,
+                canonicalSlug: decision.canonical.slug,
+                scope_kind,
+                scope_key,
+                slug_sim: decision.slug_sim,
+                content_sim: decision.content_sim,
+                incomingTimeline: concept.timeline ?? [],
+                updated_at: concept.updated_at,
+            });
+            return;
+        }
+    }
+
+    db.prepare(
+        `INSERT INTO concepts (slug, name, summary, compiled_truth, article, created_at, updated_at, mention_count, scope_kind, scope_key)
        VALUES (@slug, @name, @summary, @compiled_truth, @article, @created_at, @updated_at, @mention_count, @scope_kind, @scope_key)
        ON CONFLICT(slug) DO UPDATE SET
          name         = @name,
@@ -72,24 +126,110 @@ export function upsertConcept(
          article      = COALESCE(@article, concepts.article),
          updated_at   = @updated_at,
          mention_count = concepts.mention_count + 1`,
+    ).run({
+        slug: targetSlug,
+        name: concept.name,
+        summary: concept.summary ?? null,
+        compiled_truth: concept.compiled_truth ?? null,
+        article: concept.article ?? null,
+        created_at: concept.created_at,
+        updated_at: concept.updated_at,
+        mention_count: concept.mention_count,
+        scope_kind,
+        scope_key,
+    });
+    invalidateProfile();
+}
+
+/**
+ * Active concepts in the same scope as the incoming concept, formatted for the
+ * dedup policy. Bounded scan size per scope (200) keeps the comparison cheap;
+ * scopes with that many concepts are rare and the dominant noise is in the
+ * top-mentioned ones anyway.
+ */
+function listMergeCandidates(scope_kind: ScopeKind, scope_key: string): MergeCandidate[] {
+    const rows = getDb()
+        .prepare(
+            `SELECT slug,
+                    COALESCE(compiled_truth, summary, name, '') AS content,
+                    score,
+                    mention_count,
+                    retired_at
+             FROM concepts
+             WHERE scope_kind = ? AND scope_key = ? AND retired_at IS NULL
+             ORDER BY mention_count DESC, score DESC
+             LIMIT 200`,
         )
-        .run({
-            slug: concept.slug,
-            name: concept.name,
-            summary: concept.summary ?? null,
-            compiled_truth: concept.compiled_truth ?? null,
-            article: concept.article ?? null,
-            created_at: concept.created_at,
-            updated_at: concept.updated_at,
-            mention_count: concept.mention_count,
-            scope_kind: concept.scope_kind ?? DEFAULT_SCOPE_KIND,
-            scope_key: concept.scope_key ?? DEFAULT_SCOPE_KEY,
+        .all(scope_kind, scope_key) as Array<{
+        slug: string;
+        content: string;
+        score: number;
+        mention_count: number;
+        retired_at: string | null;
+    }>;
+    return rows;
+}
+
+/**
+ * Apply the merge: bump the canonical's mention_count, append any incoming
+ * timeline entries, and record the alias. The incoming slug never gets its
+ * own concept row.
+ */
+function mergeIntoCanonical(args: {
+    incomingSlug: string;
+    canonicalSlug: string;
+    scope_kind: ScopeKind;
+    scope_key: string;
+    slug_sim: number;
+    content_sim: number;
+    incomingTimeline: TimelineEntry[];
+    updated_at: string;
+}): void {
+    const db = getDb();
+
+    /**
+     * Atomic merge: bump the canonical's counters, fold any incoming timeline,
+     * and record the alias - or roll back the whole sequence on failure. Without
+     * this, a crash between the UPDATE and the alias INSERT would leave the
+     * canonical's mention_count incremented but no alias row recorded, so the
+     * next upsert with the same incoming slug would re-merge and double-count.
+     */
+    const apply = db.transaction(() => {
+        db.prepare(
+            `UPDATE concepts
+             SET mention_count = mention_count + 1,
+                 updated_at    = ?
+             WHERE slug = ?`,
+        ).run(args.updated_at, args.canonicalSlug);
+
+        if (args.incomingTimeline.length > 0) {
+            for (const entry of args.incomingTimeline) {
+                appendTimeline(args.canonicalSlug, entry);
+            }
+        }
+
+        recordAlias({
+            alias: args.incomingSlug,
+            canonical_slug: args.canonicalSlug,
+            scope_kind: args.scope_kind,
+            scope_key: args.scope_key,
+            merge_reason: `near-duplicate (slug_sim=${args.slug_sim.toFixed(2)}, content_sim=${args.content_sim.toFixed(2)})`,
         });
+    });
+    apply();
+
     invalidateProfile();
 }
 
 export function getConcept(slug: string): Concept | null {
-    const row = getDb().prepare('SELECT * FROM concepts WHERE slug = ?').get(slug) as
+    /**
+     * Follow aliases transparently - if the caller looks up a slug that was
+     * merged into a canonical, return the canonical row instead of null.
+     * Single-hop: the merge path always resolves to the final canonical
+     * before recording, so chains can't form.
+     */
+    const resolved = resolveAlias(slug);
+    const row = getDb().prepare('SELECT * FROM concepts WHERE slug = ?').get(resolved) as
         | Record<string, unknown>
         | undefined;
     return row ? rowToConcept(row) : null;
@@ -122,7 +262,8 @@ export function listConcepts(): Concept[] {
  */
 export function updateScore(slug: string, score: number, reason?: string | null): void {
     const db = getDb();
-    const existing = db.prepare('SELECT retired_at FROM concepts WHERE slug = ?').get(slug) as
+    const target = resolveAlias(slug);
+    const existing = db.prepare('SELECT retired_at FROM concepts WHERE slug = ?').get(target) as
         | { retired_at: string | null }
         | undefined;
     if (!existing) return;
@@ -138,10 +279,10 @@ export function updateScore(slug: string, score: number, reason?: string | null)
             score,
             new Date().toISOString(),
             reason ?? 'auto-retired: score below threshold',
-            slug,
+            target,
         );
     } else {
-        db.prepare('UPDATE concepts SET score = ? WHERE slug = ?').run(score, slug);
+        db.prepare('UPDATE concepts SET score = ? WHERE slug = ?').run(score, target);
     }
     invalidateProfile();
 }
@@ -157,7 +298,7 @@ export function retireConcept(slug: string, reason: string): void {
          SET retired_at = COALESCE(retired_at, ?),
              retire_reason = COALESCE(retire_reason, ?)
          WHERE slug = ?`,
-    ).run(new Date().toISOString(), reason, slug);
+    ).run(new Date().toISOString(), reason, resolveAlias(slug));
     invalidateProfile();
 }
 
@@ -165,14 +306,14 @@ export function retireConcept(slug: string, reason: string): void {
 export function unretireConcept(slug: string): void {
     getDb()
         .prepare('UPDATE concepts SET retired_at = NULL, retire_reason = NULL WHERE slug = ?')
-        .run(slug);
+        .run(resolveAlias(slug));
     invalidateProfile();
 }
 
 export function updateArticle(slug: string, article: string): void {
     getDb()
         .prepare('UPDATE concepts SET article = ?, updated_at = ? WHERE slug = ?')
-        .run(article, new Date().toISOString(), slug);
+        .run(article, new Date().toISOString(), resolveAlias(slug));
 }
 
 /**
@@ -184,7 +325,7 @@ export function updateCompiledTruth(slug: string, truth: string): void {
         .prepare(
             `UPDATE concepts SET compiled_truth = ?, summary = ?, updated_at = ? WHERE slug = ?`,
         )
-        .run(truth, truth, new Date().toISOString(), slug);
+        .run(truth, truth, new Date().toISOString(), resolveAlias(slug));
 }
 
 /**
@@ -193,7 +334,8 @@ export function updateCompiledTruth(slug: string, truth: string): void {
  */
 export function appendTimeline(slug: string, entry: TimelineEntry): void {
     const db = getDb();
-    const row = db.prepare('SELECT timeline FROM concepts WHERE slug = ?').get(slug) as
+    const target = resolveAlias(slug);
+    const row = db.prepare('SELECT timeline FROM concepts WHERE slug = ?').get(target) as
         | { timeline: string }
         | undefined;
 
@@ -211,7 +353,7 @@ export function appendTimeline(slug: string, entry: TimelineEntry): void {
     db.prepare('UPDATE concepts SET timeline = ?, updated_at = ? WHERE slug = ?').run(
         JSON.stringify(existing),
         new Date().toISOString(),
-        slug,
+        target,
     );
 }
 
@@ -220,14 +362,14 @@ export function appendTimeline(slug: string, entry: TimelineEntry): void {
  * Safe to call even when timeline column is missing (pre-v6 databases).
  */
 export function getTimeline(slug: string): TimelineEntry[] {
-    const row = getDb().prepare('SELECT timeline FROM concepts WHERE slug = ?').get(slug) as
-        | { timeline?: string }
-        | undefined;
+    const row = getDb()
+        .prepare('SELECT timeline FROM concepts WHERE slug = ?')
+        .get(resolveAlias(slug)) as { timeline?: string } | undefined;
     return parseTimeline(row?.timeline);
 }
 
 export function deleteConcept(slug: string): void {
-    getDb().prepare('DELETE FROM concepts WHERE slug = ?').run(slug);
+    getDb().prepare('DELETE FROM concepts WHERE slug = ?').run(resolveAlias(slug));
 }
 
 export function countConcepts(): number {
@@ -238,13 +380,17 @@ export function countConcepts(): number {
 }
 
 export function linkSourceConcept(link: SourceConcept): void {
+    const resolved: SourceConcept = {
+        ...link,
+        concept_slug: resolveAlias(link.concept_slug),
+    };
     getDb()
         .prepare(
             `INSERT INTO source_concepts (source_id, concept_slug, relevance)
        VALUES (@source_id, @concept_slug, @relevance)
        ON CONFLICT(source_id, concept_slug) DO UPDATE SET relevance = @relevance`,
         )
-        .run(link);
+        .run(resolved);
 }
 
 export function getConceptSources(slug: string): string[] {
@@ -252,7 +398,7 @@ export function getConceptSources(slug: string): string[] {
         .prepare(
             'SELECT source_id FROM source_concepts WHERE concept_slug = ? ORDER BY relevance DESC',
         )
-        .all(slug) as { source_id: string }[];
+        .all(resolveAlias(slug)) as { source_id: string }[];
     return rows.map((r) => r.source_id);
 }
 

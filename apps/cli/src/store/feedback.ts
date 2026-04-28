@@ -16,6 +16,7 @@ import { getDb } from './database.js';
 import type { ConceptFeedback } from '../types/index.js';
 import { RETIRE_THRESHOLD } from '../types/index.js';
 import { updateScore } from './concepts.js';
+import { resolveAlias } from './aliases.js';
 
 export type RecordFeedbackInput = {
     slug: string;
@@ -39,6 +40,7 @@ export type RecordFeedbackResult = {
 export function recordFeedback(input: RecordFeedbackInput): RecordFeedbackResult {
     const db = getDb();
     const now = new Date().toISOString();
+    const slug = resolveAlias(input.slug);
 
     const info = db
         .prepare(
@@ -46,7 +48,7 @@ export function recordFeedback(input: RecordFeedbackInput): RecordFeedbackResult
              VALUES (@slug, @delta, @reason, @session_id, @device_id, @created_at)`,
         )
         .run({
-            slug: input.slug,
+            slug,
             delta: input.delta,
             reason: input.reason ?? null,
             session_id: input.session_id ?? null,
@@ -54,24 +56,24 @@ export function recordFeedback(input: RecordFeedbackInput): RecordFeedbackResult
             created_at: now,
         });
 
-    const newScore = feedbackTotal(input.slug);
+    const newScore = feedbackTotal(slug);
 
     /** Auto-retire reason: most recent negative reason, or a generic note. */
     let autoReason: string | null = null;
     if (newScore <= RETIRE_THRESHOLD) {
-        autoReason = mostRecentNegativeReason(input.slug);
+        autoReason = mostRecentNegativeReason(slug);
     }
 
-    const beforeState = db
-        .prepare('SELECT retired_at FROM concepts WHERE slug = ?')
-        .get(input.slug) as { retired_at: string | null } | undefined;
+    const beforeState = db.prepare('SELECT retired_at FROM concepts WHERE slug = ?').get(slug) as
+        | { retired_at: string | null }
+        | undefined;
     const wasActive = beforeState ? beforeState.retired_at === null : false;
 
-    updateScore(input.slug, newScore, autoReason);
+    updateScore(slug, newScore, autoReason);
 
-    const afterState = db
-        .prepare('SELECT retired_at FROM concepts WHERE slug = ?')
-        .get(input.slug) as { retired_at: string | null } | undefined;
+    const afterState = db.prepare('SELECT retired_at FROM concepts WHERE slug = ?').get(slug) as
+        | { retired_at: string | null }
+        | undefined;
     const retiredNow = wasActive && afterState !== undefined && afterState.retired_at !== null;
 
     return {
@@ -87,17 +89,18 @@ export function feedbackTotal(slug: string): number {
         .prepare(
             'SELECT COALESCE(SUM(delta), 0) AS total FROM concept_feedback WHERE concept_slug = ?',
         )
-        .get(slug) as { total: number };
+        .get(resolveAlias(slug)) as { total: number };
     return row.total;
 }
 
 /** All feedback for a slug, newest first. */
 export function listFeedback(slug: string, limit?: number): ConceptFeedback[] {
+    const resolved = resolveAlias(slug);
     const sql = limit
         ? 'SELECT * FROM concept_feedback WHERE concept_slug = ? ORDER BY created_at DESC, id DESC LIMIT ?'
         : 'SELECT * FROM concept_feedback WHERE concept_slug = ? ORDER BY created_at DESC, id DESC';
     const rows = (
-        limit ? getDb().prepare(sql).all(slug, limit) : getDb().prepare(sql).all(slug)
+        limit ? getDb().prepare(sql).all(resolved, limit) : getDb().prepare(sql).all(resolved)
     ) as Array<{
         id: number;
         concept_slug: string;
