@@ -159,7 +159,7 @@ function walk(
     }
     for (const name of entries) {
         if (state.visited >= MAX_FILES) return;
-        if (name.startsWith('.') && SKIP_DIRS.has(name)) continue;
+        if (name.startsWith('.')) continue;
         if (SKIP_DIRS.has(name)) continue;
         const path = join(dir, name);
         let s;
