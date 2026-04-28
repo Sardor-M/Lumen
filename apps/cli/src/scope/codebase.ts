@@ -151,7 +151,7 @@ function readGitRemote(root: string): string | null {
 
 /** Build a stable string from root marker file hashes. Returns null if no markers exist. */
 function computeFingerprint(root: string): string | null {
-    const parts: string[] = [`root:${basename(root)}`];
+    const parts: string[] = [];
 
     for (const file of FINGERPRINT_FILES) {
         const p = join(root, file);
@@ -165,7 +165,7 @@ function computeFingerprint(root: string): string | null {
         }
     }
 
-    return parts.length > 1 ? parts.join('|') : null;
+    return parts.length > 0 ? parts.join('|') : null;
 }
 
 function sha1Hex(input: string | Buffer): string {
