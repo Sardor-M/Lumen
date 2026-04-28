@@ -9,7 +9,7 @@
  * See `docs/docs-temp/SCOPE-RESOLUTION.md` §2 for the full spec.
  */
 
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -118,7 +118,7 @@ export function resolveCodebaseScope(cwd: string): CodebaseScope {
 function readGitRemote(root: string): string | null {
     if (!existsSync(join(root, '.git'))) return null;
     try {
-        const url = execSync('git remote get-url origin', {
+        const url = execFileSync('git', ['remote', 'get-url', 'origin'], {
             cwd: root,
             stdio: ['ignore', 'pipe', 'ignore'],
             encoding: 'utf-8',
@@ -129,7 +129,7 @@ function readGitRemote(root: string): string | null {
         /** No `origin`. Try the first listed remote. */
     }
     try {
-        const out = execSync('git remote', {
+        const out = execFileSync('git', ['remote'], {
             cwd: root,
             stdio: ['ignore', 'pipe', 'ignore'],
             encoding: 'utf-8',
@@ -137,7 +137,7 @@ function readGitRemote(root: string): string | null {
         }).trim();
         const first = out.split(/\s+/).filter(Boolean)[0];
         if (!first) return null;
-        const url = execSync(`git remote get-url ${first}`, {
+        const url = execFileSync('git', ['remote', 'get-url', first], {
             cwd: root,
             stdio: ['ignore', 'pipe', 'ignore'],
             encoding: 'utf-8',
