@@ -176,7 +176,9 @@ function addRequirementsTxtDeps(root: string, out: Set<string>): void {
             const text = readFileSync(path, 'utf-8');
             for (const line of text.split('\n')) {
                 const name = line
-                    .split(/[<>=!~ ]/)[0]
+                    .split('#')[0]
+                    .split(/[<>=!~ ;]/)[0]
+                    .split('[')[0]
                     .trim()
                     .toLowerCase();
                 if (name && name in FRAMEWORK_LABELS) out.add(name);
