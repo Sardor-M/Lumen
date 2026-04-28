@@ -105,6 +105,12 @@ export function recordAlias(input: {
  * upsert. Omit scope on read paths (getConcept, FK-boundary functions) where
  * globally-unique slugs make cross-scope confusion impossible.
  *
+ * No-scope fallback: a real concept row takes priority over an alias entry with
+ * the same slug. This guards the edge case where scope A merges away `X` (alias
+ * X → Y, scope A) and scope B later inserts a fresh concept with slug `X`.
+ * Without the guard, unscoped callers would follow scope A's alias and return Y
+ * instead of scope B's X.
+ *
  * Single-hop: aliases never chain. The merge path on `upsertConcept` always
  * resolves through to the final canonical before recording, so a chain like
  * A → B → C is impossible.
@@ -118,6 +124,11 @@ export function resolveAlias(slug: string, scopeKind?: ScopeKind, scopeKey?: str
         ).get(slug, scopeKind, scopeKey) as { canonical_slug: string } | undefined;
         return row?.canonical_slug ?? slug;
     }
+    /** Real concept rows take priority over stale alias entries for the same slug. */
+    const conceptExists = getStmt(db, 'SELECT 1 AS found FROM concepts WHERE slug = ?').get(
+        slug,
+    ) as { found: number } | undefined;
+    if (conceptExists) return slug;
     const row = getStmt(db, 'SELECT canonical_slug FROM concept_aliases WHERE alias = ?').get(
         slug,
     ) as { canonical_slug: string } | undefined;
