@@ -29,6 +29,32 @@ export type RelationType =
     | 'alternative'
     | 'example-of';
 
+/**
+ * Scope dimension on every source, concept, and (later) trajectory.
+ * Determines retrieval visibility, sync routing, and aliasing scope.
+ */
+export type ScopeKind = 'codebase' | 'framework' | 'language' | 'personal' | 'team';
+
+export type Scope = {
+    kind: ScopeKind;
+    /**
+     * Stable identifier within the kind:
+     * - codebase: SHA1 of normalized git remote URL, or fingerprint of root files,
+     *   or `local-<sha1(abspath)>` (machine-local, never synced)
+     * - framework: detected dependency name (e.g. "next", "fastapi")
+     * - language: file-extension cluster ("ts", "py", "rust")
+     * - personal: user identity (always "me" on a single-user install)
+     * - team: org identifier
+     */
+    key: string;
+    /** Human-readable label. Optional; used for display only. */
+    label: string | null;
+};
+
+/** Default scope used as a backwards-compatible fallback. */
+export const DEFAULT_SCOPE_KIND: ScopeKind = 'personal';
+export const DEFAULT_SCOPE_KEY = 'me';
+
 export type Source = {
     id: string;
     title: string;
@@ -41,6 +67,8 @@ export type Source = {
     word_count: number;
     language: string | null;
     metadata: string | null;
+    scope_kind: ScopeKind;
+    scope_key: string;
 };
 
 export type Chunk = {
@@ -103,6 +131,8 @@ export type Concept = {
     last_enriched_at: string | null;
     /** 1 = queued for enrichment, 0 = current. */
     enrichment_queued: number;
+    scope_kind: ScopeKind;
+    scope_key: string;
 };
 
 export type Edge = {

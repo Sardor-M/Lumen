@@ -7,8 +7,9 @@ import type Database from 'better-sqlite3';
  * v7 — link management (concept_links table with back-link support)
  * v8 — self-improving classifiers (classifier_patterns + classifier_fallbacks tables)
  * v9 — tiered entity enrichment (enrichment_tier, last_enriched_at, enrichment_queued on concepts)
+ * v10 — scope dimension (scope_kind, scope_key on sources + concepts; scopes registry table)
  */
-const CURRENT_VERSION = 9;
+const CURRENT_VERSION = 10;
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS sources (
@@ -22,12 +23,15 @@ const SCHEMA = `
     compiled_at TEXT,
     word_count INTEGER NOT NULL DEFAULT 0,
     language TEXT,
-    metadata TEXT
+    metadata TEXT,
+    scope_kind TEXT NOT NULL DEFAULT 'personal',
+    scope_key  TEXT NOT NULL DEFAULT 'me'
   );
 
   CREATE INDEX IF NOT EXISTS idx_sources_content_hash ON sources(content_hash);
   CREATE INDEX IF NOT EXISTS idx_sources_source_type ON sources(source_type);
   CREATE INDEX IF NOT EXISTS idx_sources_compiled_at ON sources(compiled_at);
+  CREATE INDEX IF NOT EXISTS idx_sources_scope ON sources(scope_kind, scope_key);
 
   CREATE TABLE IF NOT EXISTS chunks (
     id TEXT PRIMARY KEY,
@@ -77,7 +81,21 @@ const SCHEMA = `
     mention_count INTEGER NOT NULL DEFAULT 0,
     enrichment_tier   INTEGER NOT NULL DEFAULT 3,
     last_enriched_at  TEXT,
-    enrichment_queued INTEGER NOT NULL DEFAULT 0
+    enrichment_queued INTEGER NOT NULL DEFAULT 0,
+    scope_kind TEXT NOT NULL DEFAULT 'personal',
+    scope_key  TEXT NOT NULL DEFAULT 'me'
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_concepts_scope ON concepts(scope_kind, scope_key);
+
+  CREATE TABLE IF NOT EXISTS scopes (
+    kind         TEXT NOT NULL,
+    key          TEXT NOT NULL,
+    label        TEXT,
+    detected_at  TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    metadata     TEXT,
+    PRIMARY KEY (kind, key)
   );
 
   CREATE TABLE IF NOT EXISTS edges (

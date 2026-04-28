@@ -1,14 +1,36 @@
 import { getDb } from './database.js';
 import type { Source, SourceType } from '../types/index.js';
+import { DEFAULT_SCOPE_KIND, DEFAULT_SCOPE_KEY } from '../types/index.js';
 import { invalidateProfile } from '../profile/invalidate.js';
 
-export function insertSource(source: Source): void {
+/**
+ * Insert input is Source minus the scope fields, with scope as all-or-nothing.
+ * Tier 1: callers can omit both scope fields and get `personal:me` by default.
+ * Tier 2 will pass real scopes from the resolver. Providing only one of the
+ * two fields is a caller error and throws at runtime.
+ */
+type InsertSourceInput = Omit<Source, 'scope_kind' | 'scope_key'> &
+    (
+        | { scope_kind?: undefined; scope_key?: undefined }
+        | { scope_kind: Source['scope_kind']; scope_key: string }
+    );
+
+export function insertSource(source: InsertSourceInput): void {
+    const hasKind = source.scope_kind != null;
+    const hasKey = source.scope_key != null;
+    if (hasKind !== hasKey) {
+        throw new Error('scope_kind and scope_key must be provided together or not at all');
+    }
     getDb()
         .prepare(
-            `INSERT INTO sources (id, title, url, content, content_hash, source_type, added_at, compiled_at, word_count, language, metadata)
-       VALUES (@id, @title, @url, @content, @content_hash, @source_type, @added_at, @compiled_at, @word_count, @language, @metadata)`,
+            `INSERT INTO sources (id, title, url, content, content_hash, source_type, added_at, compiled_at, word_count, language, metadata, scope_kind, scope_key)
+       VALUES (@id, @title, @url, @content, @content_hash, @source_type, @added_at, @compiled_at, @word_count, @language, @metadata, @scope_kind, @scope_key)`,
         )
-        .run(source);
+        .run({
+            ...source,
+            scope_kind: source.scope_kind ?? DEFAULT_SCOPE_KIND,
+            scope_key: source.scope_key ?? DEFAULT_SCOPE_KEY,
+        });
     invalidateProfile();
 }
 

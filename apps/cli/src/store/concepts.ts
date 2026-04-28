@@ -1,5 +1,12 @@
 import { getDb } from './database.js';
-import type { Concept, SourceConcept, TimelineEntry, EnrichmentTier } from '../types/index.js';
+import type {
+    Concept,
+    ScopeKind,
+    SourceConcept,
+    TimelineEntry,
+    EnrichmentTier,
+} from '../types/index.js';
+import { DEFAULT_SCOPE_KIND, DEFAULT_SCOPE_KEY } from '../types/index.js';
 import { invalidateProfile } from '../profile/invalidate.js';
 
 /** Parse the raw `timeline` JSON column into a typed array, newest first. */
@@ -28,21 +35,30 @@ function rowToConcept(row: Record<string, unknown>): Concept {
         enrichment_tier: ((row.enrichment_tier as number) ?? 3) as EnrichmentTier,
         last_enriched_at: (row.last_enriched_at as string | null) ?? null,
         enrichment_queued: (row.enrichment_queued as number) ?? 0,
+        scope_kind: ((row.scope_kind as ScopeKind | null) ?? DEFAULT_SCOPE_KIND) as ScopeKind,
+        scope_key: (row.scope_key as string | null) ?? DEFAULT_SCOPE_KEY,
     };
 }
 
 export function upsertConcept(
     concept: Omit<
         Concept,
-        'timeline' | 'enrichment_tier' | 'last_enriched_at' | 'enrichment_queued'
+        | 'timeline'
+        | 'enrichment_tier'
+        | 'last_enriched_at'
+        | 'enrichment_queued'
+        | 'scope_kind'
+        | 'scope_key'
     > & {
         timeline?: TimelineEntry[];
+        scope_kind?: ScopeKind;
+        scope_key?: string;
     },
 ): void {
     getDb()
         .prepare(
-            `INSERT INTO concepts (slug, name, summary, compiled_truth, article, created_at, updated_at, mention_count)
-       VALUES (@slug, @name, @summary, @compiled_truth, @article, @created_at, @updated_at, @mention_count)
+            `INSERT INTO concepts (slug, name, summary, compiled_truth, article, created_at, updated_at, mention_count, scope_kind, scope_key)
+       VALUES (@slug, @name, @summary, @compiled_truth, @article, @created_at, @updated_at, @mention_count, @scope_kind, @scope_key)
        ON CONFLICT(slug) DO UPDATE SET
          name         = @name,
          summary      = COALESCE(@summary, concepts.summary),
@@ -60,6 +76,8 @@ export function upsertConcept(
             created_at: concept.created_at,
             updated_at: concept.updated_at,
             mention_count: concept.mention_count,
+            scope_kind: concept.scope_kind ?? DEFAULT_SCOPE_KIND,
+            scope_key: concept.scope_key ?? DEFAULT_SCOPE_KEY,
         });
     invalidateProfile();
 }
