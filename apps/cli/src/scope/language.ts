@@ -114,7 +114,8 @@ export function detectLanguages(root: string): LanguageScope[] {
     const counts = new Map<string, number>();
     let totalFiles = 0;
 
-    walk(root, 0, (path) => {
+    const state = { visited: 0 };
+    walk(root, 0, state, (path) => {
         const ext = extOf(path);
         const tag = ext ? EXTENSION_TO_TAG[ext] : undefined;
         if (!tag) return;
@@ -142,17 +143,22 @@ export function detectLanguages(root: string): LanguageScope[] {
     return scopes;
 }
 
-function walk(dir: string, depth: number, visit: (path: string) => void): void {
+function walk(
+    dir: string,
+    depth: number,
+    state: { visited: number },
+    visit: (path: string) => void,
+): void {
     if (depth > MAX_DEPTH) return;
+    if (state.visited >= MAX_FILES) return;
     let entries: string[];
     try {
         entries = readdirSync(dir);
     } catch {
         return;
     }
-    let visited = 0;
     for (const name of entries) {
-        if (visited >= MAX_FILES) return;
+        if (state.visited >= MAX_FILES) return;
         if (name.startsWith('.') && SKIP_DIRS.has(name)) continue;
         if (SKIP_DIRS.has(name)) continue;
         const path = join(dir, name);
@@ -163,10 +169,10 @@ function walk(dir: string, depth: number, visit: (path: string) => void): void {
             continue;
         }
         if (s.isDirectory()) {
-            walk(path, depth + 1, visit);
+            walk(path, depth + 1, state, visit);
         } else if (s.isFile()) {
             visit(path);
-            visited++;
+            state.visited++;
         }
     }
 }
