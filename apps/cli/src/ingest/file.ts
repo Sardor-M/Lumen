@@ -49,6 +49,15 @@ export async function ingestInput(
                 return Promise.resolve(extractLocalFile(input));
             case 'folder':
                 return Promise.resolve(extractFolder(input));
+            case 'trajectory':
+                /**
+                 * Trajectories are written through `captureTrajectory()` in
+                 * src/trajectory/, not via the ingest path. Reject explicitly
+                 * so the switch stays exhaustive.
+                 */
+                throw new Error(
+                    'trajectory sources are captured via captureTrajectory(), not ingestInput()',
+                );
         }
     });
 }

@@ -16,7 +16,8 @@ export type SourceType =
     | 'folder'
     | 'code'
     | 'dataset'
-    | 'image';
+    | 'image'
+    | 'trajectory';
 
 export type RelationType =
     | 'implements'
