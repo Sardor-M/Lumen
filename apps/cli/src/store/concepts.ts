@@ -11,6 +11,7 @@ import { invalidateProfile } from '../profile/invalidate.js';
 import { findMergeCandidate } from '../dedup/index.js';
 import type { MergeCandidate } from '../dedup/index.js';
 import { recordAlias, resolveAlias } from './aliases.js';
+import { getStmt } from './prepared.js';
 
 /** Parse the raw `timeline` JSON column into a typed array, newest first. */
 function parseTimeline(raw: unknown): TimelineEntry[] {
@@ -89,7 +90,7 @@ export function upsertConcept(
      */
     const knownSlug =
         targetSlug !== concept.slug ||
-        (db.prepare('SELECT 1 AS found FROM concepts WHERE slug = ?').get(concept.slug) as
+        (getStmt(db, 'SELECT 1 AS found FROM concepts WHERE slug = ?').get(concept.slug) as
             | { found: number }
             | undefined) !== undefined;
 
@@ -143,24 +144,36 @@ export function upsertConcept(
 
 /**
  * Active concepts in the same scope as the incoming concept, formatted for the
- * dedup policy. Bounded scan size per scope (200) keeps the comparison cheap;
- * scopes with that many concepts are rare and the dominant noise is in the
- * top-mentioned ones anyway.
+ * dedup policy.
+ *
+ * Bounded scan: at most 200 candidates per upsert, ordered by
+ * `(mention_count DESC, score DESC)`. The trade-off:
+ *   - The top of that list dominates retrieval anyway (the most-mentioned
+ *     and highest-scored concepts are what `brain_ops` surfaces), so a
+ *     near-duplicate of any of them is what we most want to catch.
+ *   - The long tail (low mention_count, low score) can't become a merge
+ *     target above the 200 cap. In practice this means a fresh, never-
+ *     retrieved concept won't be folded into an even fresher near-dup
+ *     until one of them accumulates enough mentions to enter the top 200.
+ *     This is acceptable: long-tail noise concepts rarely matter, and
+ *     low-mention concepts get a chance to be the canonical themselves
+ *     once they earn it.
+ * If a scope routinely has > 200 active concepts AND duplicates in the
+ * tail are a real issue, raise the limit or add an off-line dedup sweep.
  */
 function listMergeCandidates(scope_kind: ScopeKind, scope_key: string): MergeCandidate[] {
-    const rows = getDb()
-        .prepare(
-            `SELECT slug,
-                    COALESCE(compiled_truth, summary, name, '') AS content,
-                    score,
-                    mention_count,
-                    retired_at
-             FROM concepts
-             WHERE scope_kind = ? AND scope_key = ? AND retired_at IS NULL
-             ORDER BY mention_count DESC, score DESC
-             LIMIT 200`,
-        )
-        .all(scope_kind, scope_key) as Array<{
+    const rows = getStmt(
+        getDb(),
+        `SELECT slug,
+                COALESCE(compiled_truth, summary, name, '') AS content,
+                score,
+                mention_count,
+                retired_at
+         FROM concepts
+         WHERE scope_kind = ? AND scope_key = ? AND retired_at IS NULL
+         ORDER BY mention_count DESC, score DESC
+         LIMIT 200`,
+    ).all(scope_kind, scope_key) as Array<{
         slug: string;
         content: string;
         score: number;

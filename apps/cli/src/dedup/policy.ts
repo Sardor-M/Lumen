@@ -27,8 +27,18 @@ export const CONTENT_SIM_THRESHOLD = 0.6;
  * comparison is trusted. Below this threshold we treat the content as too
  * thin to confidently say two concepts mean the same thing - even if their
  * jaccard scores high by coincidence (e.g. two stub concepts whose only
- * shared token is "concept"). Real compiled_truth bodies blow past this
- * easily; test fixtures with empty content do not.
+ * shared token is "concept").
+ *
+ * Calibration trade-off:
+ *   - Real compiled_truth bodies (LLM-synthesized, multi-sentence) blow
+ *     past 4 tokens easily, so genuine duplicates merge as expected.
+ *   - Raw captures shorter than ~5 words (e.g. "TIL: useState batches"
+ *     is 3 tokens after dropping <3-char tokens) are intentionally
+ *     held back from merging. This biases toward "leave duplicates"
+ *     instead of "wrong fold" - the right error to make for a
+ *     destructive-by-design operation.
+ * Lower to 3 for more aggressive merging if the false-negative rate
+ * becomes a problem in practice.
  */
 export const MIN_CONTENT_TOKENS = 4;
 

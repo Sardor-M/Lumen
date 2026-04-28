@@ -23,6 +23,7 @@
  */
 
 import { getDb } from './database.js';
+import { getStmt } from './prepared.js';
 import type { ScopeKind } from '../types/index.js';
 
 export type AliasRow = {
@@ -57,6 +58,13 @@ function rowToAlias(row: RawAliasRow): AliasRow {
 /**
  * Record a new alias. Idempotent: re-inserting the same alias keeps the
  * original `canonical_slug` and `merged_at` (first writer wins).
+ *
+ * Defensive guard: refuses to record an alias whose `canonical_slug` is itself
+ * already an alias. Aliases must always point at a real concept row, never
+ * at another alias - otherwise `resolveAlias`'s single-hop guarantee breaks.
+ * The merge path always resolves to the final canonical before calling here,
+ * so this should never fire in practice; it exists to catch future bugs in
+ * any new caller.
  */
 export function recordAlias(input: {
     alias: string;
@@ -65,21 +73,33 @@ export function recordAlias(input: {
     scope_key: string;
     merge_reason?: string | null;
 }): void {
+    const db = getDb();
+
+    const canonicalIsAlias = getStmt(
+        db,
+        'SELECT 1 AS found FROM concept_aliases WHERE alias = ?',
+    ).get(input.canonical_slug) as { found: number } | undefined;
+    if (canonicalIsAlias) {
+        throw new Error(
+            `recordAlias: refusing to chain - canonical_slug "${input.canonical_slug}" is itself an alias. ` +
+                `Resolve to the final canonical before calling recordAlias().`,
+        );
+    }
+
     const now = new Date().toISOString();
-    getDb()
-        .prepare(
-            `INSERT INTO concept_aliases (alias, canonical_slug, scope_kind, scope_key, merged_at, merge_reason)
-             VALUES (@alias, @canonical_slug, @scope_kind, @scope_key, @merged_at, @merge_reason)
-             ON CONFLICT(alias) DO NOTHING`,
-        )
-        .run({
-            alias: input.alias,
-            canonical_slug: input.canonical_slug,
-            scope_kind: input.scope_kind,
-            scope_key: input.scope_key,
-            merged_at: now,
-            merge_reason: input.merge_reason ?? null,
-        });
+    getStmt(
+        db,
+        `INSERT INTO concept_aliases (alias, canonical_slug, scope_kind, scope_key, merged_at, merge_reason)
+         VALUES (@alias, @canonical_slug, @scope_kind, @scope_key, @merged_at, @merge_reason)
+         ON CONFLICT(alias) DO NOTHING`,
+    ).run({
+        alias: input.alias,
+        canonical_slug: input.canonical_slug,
+        scope_kind: input.scope_kind,
+        scope_key: input.scope_key,
+        merged_at: now,
+        merge_reason: input.merge_reason ?? null,
+    });
 }
 
 /**
@@ -91,9 +111,9 @@ export function recordAlias(input: {
  * A → B → C is impossible.
  */
 export function resolveAlias(slug: string): string {
-    const row = getDb()
-        .prepare('SELECT canonical_slug FROM concept_aliases WHERE alias = ?')
-        .get(slug) as { canonical_slug: string } | undefined;
+    const row = getStmt(getDb(), 'SELECT canonical_slug FROM concept_aliases WHERE alias = ?').get(
+        slug,
+    ) as { canonical_slug: string } | undefined;
     return row?.canonical_slug ?? slug;
 }
 

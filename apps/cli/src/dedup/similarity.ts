@@ -14,7 +14,18 @@
  *     their slugs are close, because their content tokens diverge.
  */
 
-/** Tokenize content into a lowercase a-z0-9 word set, dropping tokens shorter than 3 chars. */
+/**
+ * Tokenize content into a lowercase a-z0-9 word set, dropping tokens shorter
+ * than 3 chars.
+ *
+ * ASCII-only by design. Non-ASCII content (Cyrillic, CJK, Arabic, etc.)
+ * tokenizes to an empty set, which trips the policy's thin-content guard
+ * and skips the merge entirely. This is the safe default for an English-
+ * first codebase: we'd rather skip merging non-English concepts than risk
+ * false-positive folds on a tokenizer we haven't validated for that script.
+ * If multilingual support becomes a real need, switch the split character
+ * class to `/[^\p{L}\p{N}]+/u` and add coverage in similarity tests.
+ */
 export function tokenize(text: string): string[] {
     return text
         .toLowerCase()

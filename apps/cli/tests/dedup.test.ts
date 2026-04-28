@@ -13,9 +13,20 @@ import {
     CONTENT_SIM_THRESHOLD,
 } from '../src/dedup/index.js';
 import type { MergeCandidate } from '../src/dedup/index.js';
-import { upsertConcept, getConcept, getActiveConcept } from '../src/store/concepts.js';
+import {
+    upsertConcept,
+    getConcept,
+    getActiveConcept,
+    appendTimeline,
+    updateCompiledTruth,
+    updateScore,
+    retireConcept,
+    unretireConcept,
+} from '../src/store/concepts.js';
 import { recordAlias, resolveAlias, listAliases, countAliases } from '../src/store/aliases.js';
-import { recordFeedback } from '../src/store/feedback.js';
+import { recordFeedback, feedbackTotal, listFeedback } from '../src/store/feedback.js';
+import { addLink, getBackLinks } from '../src/store/links.js';
+import { getEdgesFrom, upsertEdge } from '../src/store/edges.js';
 
 let tempDir: string;
 
@@ -286,6 +297,13 @@ describe('upsertConcept merge-on-write', () => {
     });
 
     it('merges incoming into existing canonical when slug + content cross thresholds', () => {
+        /**
+         * Both seeded concepts have the same content and end up with score=0
+         * + mention_count=1 (no feedback recorded). The merge policy ranks
+         * candidates by `(score DESC, mention_count DESC, slug ASC)`, so the
+         * tie-breaker on this case is lexicographic on slug - 'add-route' wins
+         * over 'add-routes'. Insertion order does NOT determine the canonical.
+         */
         seedConcept('add-route', {
             truth: 'register a new route in the express server with app dot get',
         });
@@ -386,5 +404,122 @@ describe('getConcept transparently follows aliases', () => {
 
     it('returns null when neither the slug nor any alias resolves', () => {
         expect(getConcept('does-not-exist-slug')).toBeNull();
+    });
+});
+
+/** ─── recordAlias safety guards ─── */
+
+describe('recordAlias chain prevention', () => {
+    it('refuses to record an alias whose canonical_slug is itself an alias', () => {
+        seedConcept('real-canon', { truth: 'genuine content body that has multiple tokens' });
+        recordAlias({
+            alias: 'first-alias',
+            canonical_slug: 'real-canon',
+            scope_kind: 'codebase',
+            scope_key: 'repo-a',
+        });
+
+        /** Attempting to point a new alias at first-alias must throw. */
+        expect(() =>
+            recordAlias({
+                alias: 'second-alias',
+                canonical_slug: 'first-alias',
+                scope_kind: 'codebase',
+                scope_key: 'repo-a',
+            }),
+        ).toThrow(/refusing to chain/i);
+    });
+});
+
+/** ─── Post-merge caller flow (FK resolution at every boundary) ─── */
+
+describe('post-merge caller flow follows aliases', () => {
+    /**
+     * Set up a merged pair: `route-add` is the canonical (lexicographically
+     * earlier wins the score=0 tie-break), `route-adds` folds in as the alias.
+     * Every test below calls FK-touching functions with the alias slug and
+     * verifies the operation lands on the canonical row.
+     */
+    function setupMerged(): void {
+        seedConcept('route-add', {
+            truth: 'register a new route in the express server with app dot get method',
+        });
+        seedConcept('route-adds', {
+            truth: 'register a new route in the express server with app dot get method',
+        });
+        /** Sanity check: the merge fired. */
+        expect(resolveAlias('route-adds')).toBe('route-add');
+    }
+
+    it('updateCompiledTruth(alias) writes to the canonical row', () => {
+        setupMerged();
+        updateCompiledTruth('route-adds', 'updated synthesis written via alias');
+        expect(getConcept('route-add')?.compiled_truth).toBe('updated synthesis written via alias');
+    });
+
+    it('appendTimeline(alias) appends to the canonical row', () => {
+        setupMerged();
+        const before = getConcept('route-add')?.timeline.length ?? 0;
+        appendTimeline('route-adds', {
+            date: '2026-04-28',
+            source_id: null,
+            source_title: 'via alias',
+            event: 'test entry',
+            detail: null,
+        });
+        expect((getConcept('route-add')?.timeline.length ?? 0) - before).toBe(1);
+    });
+
+    it('updateScore(alias) writes to the canonical row', () => {
+        setupMerged();
+        updateScore('route-adds', 5);
+        expect(getConcept('route-add')?.score).toBe(5);
+    });
+
+    it('retireConcept(alias) retires the canonical row', () => {
+        setupMerged();
+        retireConcept('route-adds', 'manual cleanup via alias');
+        expect(getConcept('route-add')?.retired_at).not.toBeNull();
+        expect(getConcept('route-add')?.retire_reason).toBe('manual cleanup via alias');
+        unretireConcept('route-adds');
+        expect(getConcept('route-add')?.retired_at).toBeNull();
+    });
+
+    it('addLink(alias, alias) lands as canonical→canonical edge in concept_links', () => {
+        setupMerged();
+        seedConcept('other-canon', {
+            truth: 'another concept body with sufficient distinct content tokens',
+        });
+        addLink('route-adds', 'other-canon', 'reference');
+        const links = getBackLinks('other-canon');
+        expect(links.some((l) => l.from_slug === 'route-add')).toBe(true);
+        expect(links.some((l) => l.from_slug === 'route-adds')).toBe(false);
+    });
+
+    it('upsertEdge(alias→alias) lands as canonical→canonical in edges', () => {
+        setupMerged();
+        seedConcept('other-canon', {
+            truth: 'a different concept body with several distinct tokens',
+        });
+        upsertEdge({
+            from_slug: 'route-adds',
+            to_slug: 'other-canon',
+            relation: 'related',
+            weight: 1,
+            source_id: null,
+        });
+        const edges = getEdgesFrom('route-adds');
+        expect(edges.length).toBe(1);
+        expect(edges[0].from_slug).toBe('route-add');
+    });
+
+    it('recordFeedback(alias) records on the canonical and bumps its score', () => {
+        setupMerged();
+        const before = getConcept('route-add')?.score ?? 0;
+        recordFeedback({ slug: 'route-adds', delta: 1 });
+        recordFeedback({ slug: 'route-adds', delta: 1 });
+        expect(getConcept('route-add')?.score).toBe(before + 2);
+        expect(feedbackTotal('route-adds')).toBe(2);
+        expect(listFeedback('route-adds').length).toBe(2);
     });
 });
