@@ -338,6 +338,50 @@ describe('upsertConcept merge-on-write', () => {
         expect(countAliases()).toBe(0);
     });
 
+    it('scope-A alias does not redirect a scope-B upsert', () => {
+        /**
+         * 1. Merge fires in scope-A: 'route-add' is canonical, 'route-adds' is
+         *    recorded as its alias.
+         * 2. A separate scope-B write arrives with slug 'route-adds'. Without
+         *    scope-aware resolution this would silently land on scope-A's
+         *    'route-add' row. With the fix it must create a fresh concept.
+         */
+        seedConcept('route-add', {
+            truth: 'register a new route in the express server with app dot get method',
+            scope_key: 'repo-a',
+        });
+        seedConcept('route-adds', {
+            truth: 'register a new route in the express server with app dot get method',
+            scope_key: 'repo-a',
+        });
+        /** Sanity: alias was recorded in scope-A. */
+        expect(resolveAlias('route-adds')).toBe('route-add');
+
+        /** Now upsert 'route-adds' in scope-B — must NOT follow scope-A's alias. */
+        const now = new Date().toISOString();
+        upsertConcept({
+            slug: 'route-adds',
+            name: 'route-adds',
+            summary: 'completely different concept in repo-b',
+            compiled_truth: 'completely different concept in repo-b',
+            article: null,
+            created_at: now,
+            updated_at: now,
+            mention_count: 1,
+            scope_kind: 'codebase',
+            scope_key: 'repo-b',
+        });
+
+        /** scope-B concept must exist as its own row. */
+        const scopeBConcept = getConcept('route-adds');
+        expect(scopeBConcept?.slug).toBe('route-adds');
+        expect(scopeBConcept?.scope_key).toBe('repo-b');
+
+        /** scope-A canonical must be untouched. */
+        const scopeAConcept = getConcept('route-add');
+        expect(scopeAConcept?.scope_key).toBe('repo-a');
+    });
+
     it('does NOT merge into a retired canonical', () => {
         seedConcept('orig-slug', { truth: 'shared body content for the merge test scenario' });
         /** Drive orig-slug into retirement. */

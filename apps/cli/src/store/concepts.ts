@@ -70,12 +70,13 @@ export function upsertConcept(
     const scope_key = concept.scope_key ?? DEFAULT_SCOPE_KEY;
 
     /**
-     * Resolve the incoming slug through the alias table first. If it points
-     * at a canonical, the upsert applies to that canonical row directly via
-     * the ON CONFLICT path - no re-scan, no risk of inserting a fresh row
-     * that gets shadowed by an existing alias.
+     * Resolve the incoming slug through the alias table first, scoped to this
+     * operation's (scope_kind, scope_key). Scope-isolation prevents an alias
+     * recorded in scope A from silently redirecting a write in scope B to
+     * scope A's canonical row. If no alias exists for this slug in this scope,
+     * targetSlug === concept.slug and the upsert proceeds normally.
      */
-    const targetSlug = resolveAlias(concept.slug);
+    const targetSlug = resolveAlias(concept.slug, scope_kind, scope_key);
 
     /**
      * Merge-on-write: when the incoming slug is new (no exact-slug conflict

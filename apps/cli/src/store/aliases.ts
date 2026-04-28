@@ -6,20 +6,13 @@
  * `getConcept(alias)` follow the pointer and return the canonical row, so
  * agents that captured a slightly different name see one consistent skill.
  *
- * Scope semantics (load-bearing): the alias table's PRIMARY KEY is `alias`
- * alone, NOT `(alias, scope_kind, scope_key)`. This means an alias slug is
- * GLOBALLY unique - if the same alias slug appears as a near-duplicate in
- * two scopes, only the first scope's merge is recorded; the second scope's
- * merge no-ops via `ON CONFLICT DO NOTHING`. The trade-off is intentional:
- *   - The merge path scopes its candidate scan, so cross-scope concepts
- *     never compare against each other - the only way the same alias slug
- *     fires in two scopes is if the agent independently captured the same
- *     literal slug in both, which is rare.
- *   - Cross-scope alias resolution would require threading scope through
- *     every `resolveAlias()` call site (every FK boundary) - much larger
- *     surface area for a problem that doesn't occur in practice.
- * If cross-scope collisions ever become a real issue, widen the PK and
- * extend `resolveAlias(slug, scope_kind, scope_key)` accordingly.
+ * Scope semantics: the alias table PRIMARY KEY is `alias` alone. `resolveAlias`
+ * accepts optional scope params; when provided the lookup is scope-isolated —
+ * an alias recorded in scope A will not redirect a write in scope B. Write paths
+ * (`upsertConcept`) always pass scope to prevent cross-scope data corruption.
+ * Read-path callers (`getConcept`, FK-boundary functions) omit scope, which is
+ * safe because concept slugs are globally unique (PK in the concepts table), so
+ * following an alias at read time never lands on the wrong row.
  */
 
 import { getDb } from './database.js';
@@ -106,12 +99,26 @@ export function recordAlias(input: {
  * Resolve a slug through the alias table. Returns the canonical slug when an
  * alias exists, or the input slug unchanged when no alias points at it.
  *
+ * When `scopeKind` and `scopeKey` are provided the lookup is scope-isolated:
+ * only an alias recorded for that exact scope is followed. Pass scope on write
+ * paths to prevent one scope's merge from silently redirecting another scope's
+ * upsert. Omit scope on read paths (getConcept, FK-boundary functions) where
+ * globally-unique slugs make cross-scope confusion impossible.
+ *
  * Single-hop: aliases never chain. The merge path on `upsertConcept` always
  * resolves through to the final canonical before recording, so a chain like
  * A → B → C is impossible.
  */
-export function resolveAlias(slug: string): string {
-    const row = getStmt(getDb(), 'SELECT canonical_slug FROM concept_aliases WHERE alias = ?').get(
+export function resolveAlias(slug: string, scopeKind?: ScopeKind, scopeKey?: string): string {
+    const db = getDb();
+    if (scopeKind !== undefined && scopeKey !== undefined) {
+        const row = getStmt(
+            db,
+            'SELECT canonical_slug FROM concept_aliases WHERE alias = ? AND scope_kind = ? AND scope_key = ?',
+        ).get(slug, scopeKind, scopeKey) as { canonical_slug: string } | undefined;
+        return row?.canonical_slug ?? slug;
+    }
+    const row = getStmt(db, 'SELECT canonical_slug FROM concept_aliases WHERE alias = ?').get(
         slug,
     ) as { canonical_slug: string } | undefined;
     return row?.canonical_slug ?? slug;
