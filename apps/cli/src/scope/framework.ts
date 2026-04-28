@@ -132,13 +132,23 @@ function addPackageJsonDeps(root: string, out: Set<string>): void {
     }
 }
 
+/** Maps known npm scope names (without @) to FRAMEWORK_LABELS keys. */
+const NPM_SCOPE_ALIAS: Record<string, string> = {
+    nestjs: 'nestjs',
+    'chakra-ui': 'chakra-ui',
+    'radix-ui': 'radix-ui',
+    trpc: 'trpc',
+    playwright: 'playwright',
+};
+
 function normalizeNpmName(name: string): string | null {
-    /** Strip @scope/ prefix; lowercase. */
     const lower = name.toLowerCase();
     if (lower.startsWith('@')) {
         const slash = lower.indexOf('/');
-        if (slash > 0) return lower.slice(slash + 1);
-        return null;
+        if (slash < 0) return null;
+        const scope = lower.slice(1, slash);
+        /** Prefer the alias map for known scopes; fall back to the unscoped part. */
+        return NPM_SCOPE_ALIAS[scope] ?? lower.slice(slash + 1);
     }
     return lower;
 }
