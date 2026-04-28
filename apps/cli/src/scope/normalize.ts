@@ -26,7 +26,8 @@ export function normalizeGitRemote(input: string): string | null {
 
     /** SSH form: git@host:owner/repo(.git)? — convert to HTTPS. */
     const sshMatch = SSH_LIKE.exec(raw);
-    if (sshMatch && !raw.includes('://')) {
+    const isWindowsDrivePath = /^[A-Za-z]:[\\/]/.test(raw);
+    if (sshMatch && !raw.includes('://') && !isWindowsDrivePath) {
         const host = sshMatch[2];
         const path = sshMatch[3];
         return canonicalize(`https://${host}/${path}`);
