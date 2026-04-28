@@ -91,10 +91,22 @@ function scoreWithOutcomePenalty(m: ReplayMatch): number {
 function parseMetadata(raw: string | null): TrajectoryMetadata | null {
     if (!raw) return null;
     try {
-        return JSON.parse(raw) as TrajectoryMetadata;
+        const parsed: unknown = JSON.parse(raw);
+        if (!isTrajectoryMetadata(parsed)) return null;
+        return parsed;
     } catch {
         return null;
     }
+}
+
+function isTrajectoryMetadata(value: unknown): value is TrajectoryMetadata {
+    if (!value || typeof value !== 'object') return false;
+    const v = value as Partial<TrajectoryMetadata>;
+    if (!Array.isArray(v.steps)) return false;
+    if (v.outcome !== 'success' && v.outcome !== 'partial' && v.outcome !== 'failure') return false;
+    if (!v.scope || typeof v.scope !== 'object') return false;
+    const scope = v.scope as { kind?: unknown; key?: unknown };
+    return typeof scope.kind === 'string' && typeof scope.key === 'string';
 }
 
 function computeCaveats(
@@ -118,6 +130,7 @@ function computeCaveats(
     }
 
     const root = findProjectRoot(cwd);
+    if (!Array.isArray(metadata.steps)) return caveats;
     for (const step of metadata.steps) {
         const filePath = pickFilePath(step.args);
         if (!filePath) continue;
