@@ -37,6 +37,7 @@ import { sourceExists } from '../store/dedup.js';
 import { shortId, contentHash } from '../utils/hash.js';
 import { chunk } from '../chunker/index.js';
 import { logQuery } from '../store/query-log.js';
+import { scrubPii } from '../pii/index.js';
 
 export async function startMcpServer(): Promise<void> {
     getDb();
@@ -756,14 +757,42 @@ a notable fact about a concept. The brain grows automatically.`,
                 ),
         },
         async ({ type, title, content, related_slugs, source_context }) => {
-            const slug = toSlug(title);
+            const titleScrub = scrubPii(title, { strict: true });
+            if (!titleScrub.ok) {
+                return {
+                    content: [{ type: 'text' as const, text: titleScrub.reason }],
+                    isError: true,
+                };
+            }
+            const contentScrub = scrubPii(content);
+            if (!contentScrub.ok) {
+                return {
+                    content: [{ type: 'text' as const, text: contentScrub.reason }],
+                    isError: true,
+                };
+            }
+            const contextScrub = scrubPii(source_context ?? '');
+            if (!contextScrub.ok) {
+                return {
+                    content: [{ type: 'text' as const, text: contextScrub.reason }],
+                    isError: true,
+                };
+            }
+
+            const cleanTitle = titleScrub.content;
+            const cleanContent = contentScrub.content;
+            const cleanContext = source_context !== undefined ? contextScrub.content : undefined;
+            const totalRedactions =
+                titleScrub.redactions + contentScrub.redactions + contextScrub.redactions;
+
+            const slug = toSlug(cleanTitle);
             const now = new Date().toISOString();
 
             upsertConcept({
                 slug,
-                name: title,
-                summary: content,
-                compiled_truth: content,
+                name: cleanTitle,
+                summary: cleanContent,
+                compiled_truth: cleanContent,
                 article: null,
                 created_at: now,
                 updated_at: now,
@@ -773,14 +802,14 @@ a notable fact about a concept. The brain grows automatically.`,
             appendTimeline(slug, {
                 date: now.slice(0, 10),
                 source_id: null,
-                source_title: source_context ?? `Captured via MCP (${type})`,
-                event: `${type}: ${content.slice(0, 120)}`,
-                detail: content,
+                source_title: cleanContext ?? `Captured via MCP (${type})`,
+                event: `${type}: ${cleanContent.slice(0, 120)}`,
+                detail: cleanContent,
             });
 
             for (const related of related_slugs ?? []) {
                 if (getConcept(related)) {
-                    addBackLink(slug, related, content.slice(0, 200), null);
+                    addBackLink(slug, related, cleanContent.slice(0, 200), null);
                 }
             }
 
@@ -791,7 +820,18 @@ a notable fact about a concept. The brain grows automatically.`,
                     {
                         type: 'text' as const,
                         text: JSON.stringify(
-                            { captured: true, slug, type, linked_to: related_slugs ?? [] },
+                            {
+                                captured: true,
+                                slug,
+                                type,
+                                linked_to: related_slugs ?? [],
+                                redactions: totalRedactions,
+                                redacted_patterns: {
+                                    ...titleScrub.by_pattern,
+                                    ...contentScrub.by_pattern,
+                                    ...contextScrub.by_pattern,
+                                },
+                            },
                             null,
                             2,
                         ),
@@ -812,6 +852,14 @@ a notable fact about a concept. The brain grows automatically.`,
                 .describe('Concept slugs that came up in the session'),
         },
         async ({ summary, concepts_touched }) => {
+            const summaryScrub = scrubPii(summary);
+            if (!summaryScrub.ok) {
+                return {
+                    content: [{ type: 'text' as const, text: summaryScrub.reason }],
+                    isError: true,
+                };
+            }
+            const cleanSummary = summaryScrub.content;
             const today = new Date().toISOString().slice(0, 10);
             let updated = 0;
 
@@ -821,8 +869,8 @@ a notable fact about a concept. The brain grows automatically.`,
                         date: today,
                         source_id: null,
                         source_title: `MCP session ${today}`,
-                        event: `Appeared in session: ${summary.slice(0, 100)}`,
-                        detail: summary,
+                        event: `Appeared in session: ${cleanSummary.slice(0, 100)}`,
+                        detail: cleanSummary,
                     });
                     updated++;
                 }
@@ -832,7 +880,16 @@ a notable fact about a concept. The brain grows automatically.`,
                 content: [
                     {
                         type: 'text' as const,
-                        text: JSON.stringify({ stored: true, concepts_updated: updated }, null, 2),
+                        text: JSON.stringify(
+                            {
+                                stored: true,
+                                concepts_updated: updated,
+                                redactions: summaryScrub.redactions,
+                                redacted_patterns: summaryScrub.by_pattern,
+                            },
+                            null,
+                            2,
+                        ),
                     },
                 ],
             };
