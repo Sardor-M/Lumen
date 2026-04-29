@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { setDataDir, resetDataDir } from '../src/utils/paths.js';
+import { resetDataDir } from '../src/utils/paths.js';
 import { getDb, resetDb } from '../src/store/database.js';
 import {
     appendJournal,
@@ -26,13 +26,15 @@ let tempDir: string;
 
 beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), 'lumen-sync-journal-'));
-    setDataDir(tempDir);
+    process.env.LUMEN_DIR = tempDir;
+    resetDataDir();
     getDb();
 });
 
 afterEach(() => {
     resetDb();
     resetDataDir();
+    delete process.env.LUMEN_DIR;
     rmSync(tempDir, { recursive: true, force: true });
 });
 
