@@ -37,6 +37,7 @@ import { sourceExists } from '../store/dedup.js';
 import { shortId, contentHash } from '../utils/hash.js';
 import { chunk } from '../chunker/index.js';
 import { logQuery } from '../store/query-log.js';
+import { toKnownSkill, budgetHint } from './brain-ops-helpers.js';
 import { scrubPii } from '../pii/index.js';
 
 export async function startMcpServer(): Promise<void> {
@@ -1132,29 +1133,25 @@ Agents should call this automatically — it is the entry point to the brain.`,
                         result_count: 1,
                         latency_ms: Date.now() - start,
                         session_id: sessionId,
+                        skill_hit: 1,
+                        scope_kind: concept.scope_kind,
+                        scope_key: concept.scope_key,
                     });
-                    return {
-                        content: [
-                            {
-                                type: 'text' as const,
-                                text: JSON.stringify(
-                                    {
-                                        found: true,
-                                        intent: 'concept',
-                                        slug: concept.slug,
-                                        name: concept.name,
-                                        compiled_truth: concept.compiled_truth ?? concept.summary,
-                                        mention_count: concept.mention_count,
-                                        score: concept.score,
-                                        outgoing_edges: getEdgesFrom(slug).slice(0, 8),
-                                        incoming_edges: getEdgesTo(slug).slice(0, 8),
-                                    },
-                                    null,
-                                    2,
-                                ),
-                            },
-                        ],
-                    };
+                    return jsonResponse({
+                        found: true,
+                        intent: 'concept',
+                        known_skill: toKnownSkill(concept),
+                        exploration_recommended: false,
+                        slug: concept.slug,
+                        name: concept.name,
+                        compiled_truth: concept.compiled_truth ?? concept.summary,
+                        mention_count: concept.mention_count,
+                        score: concept.score,
+                        outgoing_edges: getEdgesFrom(slug).slice(0, 8),
+                        incoming_edges: getEdgesTo(slug).slice(0, 8),
+                        fallback_results: [],
+                        exploration_budget_hint: budgetHint(concept.scope_kind, concept.scope_key),
+                    });
                 }
                 /** Fall through to hybrid search if no exact (active) concept match. */
             }
@@ -1168,19 +1165,17 @@ Agents should call this automatically — it is the entry point to the brain.`,
                     result_count: pathResult ? 1 : 0,
                     latency_ms: Date.now() - start,
                     session_id: sessionId,
+                    skill_hit: pathResult ? 1 : 0,
                 });
-                return {
-                    content: [
-                        {
-                            type: 'text' as const,
-                            text: JSON.stringify(
-                                { found: !!pathResult, intent: 'path', path: pathResult },
-                                null,
-                                2,
-                            ),
-                        },
-                    ],
-                };
+                return jsonResponse({
+                    found: !!pathResult,
+                    intent: 'path',
+                    known_skill: null,
+                    exploration_recommended: !pathResult,
+                    path: pathResult,
+                    fallback_results: [],
+                    exploration_budget_hint: budgetHint(null, null),
+                });
             }
 
             /** ── Neighborhood ── */
@@ -1188,32 +1183,34 @@ Agents should call this automatically — it is the entry point to the brain.`,
                 const raw = query.replace(/^(related to|neighbors of|connected to)\s+/i, '').trim();
                 const slug = toSlug(raw);
                 const nb = neighborhood(slug, 2);
+                /** A neighborhood with > 1 node means the center concept exists in the graph. */
+                const centerHit = nb.nodes.size > 1;
+                const centerConcept = centerHit ? getActiveConcept(slug) : null;
                 logQuery({
                     tool_name: 'brain_ops',
                     query_text: query,
                     result_count: nb.nodes.size,
                     latency_ms: Date.now() - start,
                     session_id: sessionId,
+                    skill_hit: centerHit ? 1 : 0,
+                    scope_kind: centerConcept?.scope_kind ?? null,
+                    scope_key: centerConcept?.scope_key ?? null,
                 });
-                return {
-                    content: [
-                        {
-                            type: 'text' as const,
-                            text: JSON.stringify(
-                                {
-                                    found: nb.nodes.size > 1,
-                                    intent: 'neighborhood',
-                                    center: slug,
-                                    node_count: nb.nodes.size > 1 ? nb.nodes.size - 1 : 0,
-                                    nodes: [...nb.nodes].filter((n) => n !== slug),
-                                    edges: nb.edges.slice(0, 20),
-                                },
-                                null,
-                                2,
-                            ),
-                        },
-                    ],
-                };
+                return jsonResponse({
+                    found: centerHit,
+                    intent: 'neighborhood',
+                    known_skill: centerConcept ? toKnownSkill(centerConcept) : null,
+                    exploration_recommended: !centerHit,
+                    center: slug,
+                    node_count: centerHit ? nb.nodes.size - 1 : 0,
+                    nodes: [...nb.nodes].filter((n) => n !== slug),
+                    edges: nb.edges.slice(0, 20),
+                    fallback_results: [],
+                    exploration_budget_hint: budgetHint(
+                        centerConcept?.scope_kind ?? null,
+                        centerConcept?.scope_key ?? null,
+                    ),
+                });
             }
 
             /** ── Default: BM25 + TF-IDF hybrid search ── */
@@ -1276,31 +1273,39 @@ Agents should call this automatically — it is the entry point to the brain.`,
                 };
             });
 
+            /** Estimate tokens served back: 4 chars per token over the truncated content. */
+            const tokensServed = Math.ceil(
+                results.reduce((sum, r) => sum + (r.content?.length ?? 0), 0) / 4,
+            );
+
             logQuery({
                 tool_name: 'brain_ops',
                 query_text: query,
                 result_count: results.length,
                 latency_ms: Date.now() - start,
                 session_id: sessionId,
+                /**
+                 * Hybrid search is exploration by definition - the agent didn't have a
+                 * known concept-level skill. skill_hit stays 0 even when results are
+                 * found, otherwise the telemetry can't distinguish "exploration that
+                 * happened to find chunks" from "exploitation of a stored skill".
+                 */
+                skill_hit: 0,
+                tokens_spent: tokensServed,
             });
 
-            return {
-                content: [
-                    {
-                        type: 'text' as const,
-                        text: JSON.stringify(
-                            {
-                                found: results.length > 0,
-                                intent: 'hybrid_search',
-                                result_count: results.length,
-                                results,
-                            },
-                            null,
-                            2,
-                        ),
-                    },
-                ],
-            };
+            return jsonResponse({
+                found: results.length > 0,
+                intent: 'hybrid_search',
+                /** Chunks aren't skills - no consolidated KnownSkill to surface here. */
+                known_skill: null,
+                /** No stored skill matched, so the agent should plan to explore further. */
+                exploration_recommended: true,
+                result_count: results.length,
+                results,
+                fallback_results: results,
+                exploration_budget_hint: budgetHint(null, null),
+            });
         },
     );
 
@@ -1308,6 +1313,13 @@ Agents should call this automatically — it is the entry point to the brain.`,
 
     const transport = new StdioServerTransport();
     await server.connect(transport);
+}
+
+/** Wrap any object as the MCP { content: [{ type: 'text', text: JSON }] } response. */
+function jsonResponse(payload: unknown): {
+    content: { type: 'text'; text: string }[];
+} {
+    return { content: [{ type: 'text' as const, text: JSON.stringify(payload, null, 2) }] };
 }
 
 /** Deterministic intent detection for brain_ops — no LLM call needed. */

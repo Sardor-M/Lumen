@@ -163,6 +163,44 @@ export type ConceptFeedback = {
     created_at: string;
 };
 
+/**
+ * The "skill" a `brain_ops` lookup was able to find for the agent's query —
+ * either a concept that matched the intent directly, or null when no
+ * stored skill is good enough and exploration is required.
+ *
+ * When `known_skill !== null`, the agent should treat its `compiled_truth`
+ * as authoritative context. When null, the agent falls through to
+ * `fallback_results` and may need to explore further.
+ */
+export type KnownSkill = {
+    slug: string;
+    name: string;
+    compiled_truth: string | null;
+    score: number;
+    scope: { kind: ScopeKind; key: string };
+    mention_count: number;
+    last_used_at: string | null;
+};
+
+/**
+ * Per-scope exploration-cost accounting attached to every `brain_ops`
+ * response. Lets agents (and the humans reading their logs) see, in one
+ * payload, how much exploration the brain has already absorbed for this
+ * scope. Computed from `query_log` over the last 7 days.
+ */
+export type ExplorationBudgetHint = {
+    /** How many task-sessions have been recorded in this scope over the window. */
+    prior_tasks_in_scope: number;
+    /** Mean tokens spent per session that had at least one stored-skill hit. */
+    avg_tokens_with_skill: number;
+    /** Mean tokens spent per session with zero stored-skill hits (exploration). */
+    avg_tokens_without_skill: number;
+    /** Estimated tokens this query would have cost without the brain. */
+    estimated_savings_tokens: number;
+    /** Cumulative skill_hit_rate over the window. */
+    skill_hit_rate: number;
+};
+
 export type Edge = {
     from_slug: string;
     to_slug: string;
