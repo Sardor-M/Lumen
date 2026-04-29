@@ -9,8 +9,9 @@ import type Database from 'better-sqlite3';
  * v9 — tiered entity enrichment (enrichment_tier, last_enriched_at, enrichment_queued on concepts)
  * v10 — scope dimension (scope_kind, scope_key on sources + concepts; scopes registry table)
  * v11 — concept scoring + retirement (score, retired_at, retire_reason on concepts; concept_feedback table)
+ * v12 — concept_aliases table (merge near-duplicates on write; aliases follow to canonical)
  */
-const CURRENT_VERSION = 11;
+const CURRENT_VERSION = 12;
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS sources (
@@ -105,6 +106,18 @@ const SCHEMA = `
   );
 
   CREATE INDEX IF NOT EXISTS idx_feedback_concept ON concept_feedback(concept_slug);
+
+  CREATE TABLE IF NOT EXISTS concept_aliases (
+    alias          TEXT PRIMARY KEY,
+    canonical_slug TEXT NOT NULL REFERENCES concepts(slug) ON DELETE CASCADE,
+    scope_kind     TEXT NOT NULL,
+    scope_key      TEXT NOT NULL,
+    merged_at      TEXT NOT NULL,
+    merge_reason   TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_aliases_canonical ON concept_aliases(canonical_slug);
+  CREATE INDEX IF NOT EXISTS idx_aliases_scope     ON concept_aliases(scope_kind, scope_key);
 
   CREATE TABLE IF NOT EXISTS scopes (
     kind         TEXT NOT NULL,

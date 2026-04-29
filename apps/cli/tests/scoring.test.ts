@@ -51,9 +51,10 @@ function seedConcept(slug: string, name = slug): void {
 /* ─── Migration v11 ─── */
 
 describe('schema v11', () => {
-    it('reports user_version = 11 after fresh init', () => {
-        const v = getDb().pragma('user_version', { simple: true });
-        expect(v).toBe(11);
+    it('reports user_version >= 11 after fresh init', () => {
+        /** Tier 3b bumped to 12; the v11 columns/tables under test still apply. */
+        const v = getDb().pragma('user_version', { simple: true }) as number;
+        expect(v).toBeGreaterThanOrEqual(11);
     });
 
     it('adds score / retired_at / retire_reason to concepts', () => {

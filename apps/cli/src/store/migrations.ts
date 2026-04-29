@@ -177,6 +177,23 @@ const migrations: Record<number, Migration> = {
             CREATE INDEX IF NOT EXISTS idx_feedback_concept ON concept_feedback(concept_slug);
         `);
     },
+
+    /** v12 — concept_aliases table for merge-on-write near-duplicate handling. */
+    12: (db) => {
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS concept_aliases (
+                alias          TEXT PRIMARY KEY,
+                canonical_slug TEXT NOT NULL REFERENCES concepts(slug) ON DELETE CASCADE,
+                scope_kind     TEXT NOT NULL,
+                scope_key      TEXT NOT NULL,
+                merged_at      TEXT NOT NULL,
+                merge_reason   TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_aliases_canonical ON concept_aliases(canonical_slug);
+            CREATE INDEX IF NOT EXISTS idx_aliases_scope     ON concept_aliases(scope_kind, scope_key);
+        `);
+    },
 };
 
 export function runMigrations(
