@@ -10,8 +10,9 @@ import type Database from 'better-sqlite3';
  * v10 — scope dimension (scope_kind, scope_key on sources + concepts; scopes registry table)
  * v11 — concept scoring + retirement (score, retired_at, retire_reason on concepts; concept_feedback table)
  * v12 — concept_aliases table (merge near-duplicates on write; aliases follow to canonical)
+ * v13 — exploration-cost telemetry (tokens_spent, skill_hit, exploration_depth, scope_kind, scope_key on query_log)
  */
-const CURRENT_VERSION = 12;
+const CURRENT_VERSION = 13;
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS sources (
@@ -155,11 +156,18 @@ const SCHEMA = `
     result_count INTEGER,
     latency_ms INTEGER,
     session_id TEXT,
-    timestamp TEXT NOT NULL DEFAULT (datetime('now'))
+    timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+    tokens_spent INTEGER,
+    skill_hit INTEGER NOT NULL DEFAULT 0,
+    exploration_depth INTEGER,
+    scope_kind TEXT,
+    scope_key TEXT
   );
 
   CREATE INDEX IF NOT EXISTS idx_query_log_tool ON query_log(tool_name);
   CREATE INDEX IF NOT EXISTS idx_query_log_ts ON query_log(timestamp);
+  CREATE INDEX IF NOT EXISTS idx_query_log_skill_hit ON query_log(skill_hit);
+  CREATE INDEX IF NOT EXISTS idx_query_log_scope ON query_log(scope_kind, scope_key);
 
   CREATE TABLE IF NOT EXISTS profile_snapshot (
     id INTEGER PRIMARY KEY CHECK (id = 1),

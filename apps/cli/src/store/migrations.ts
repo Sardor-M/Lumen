@@ -194,6 +194,20 @@ const migrations: Record<number, Migration> = {
             CREATE INDEX IF NOT EXISTS idx_aliases_scope     ON concept_aliases(scope_kind, scope_key);
         `);
     },
+
+    /** v13 — exploration-cost telemetry on query_log. */
+    13: (db) => {
+        db.exec(`
+            ALTER TABLE query_log ADD COLUMN tokens_spent      INTEGER;
+            ALTER TABLE query_log ADD COLUMN skill_hit         INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE query_log ADD COLUMN exploration_depth INTEGER;
+            ALTER TABLE query_log ADD COLUMN scope_kind        TEXT;
+            ALTER TABLE query_log ADD COLUMN scope_key         TEXT;
+
+            CREATE INDEX IF NOT EXISTS idx_query_log_skill_hit ON query_log(skill_hit);
+            CREATE INDEX IF NOT EXISTS idx_query_log_scope     ON query_log(scope_kind, scope_key);
+        `);
+    },
 };
 
 export function runMigrations(
