@@ -11,8 +11,9 @@ import type Database from 'better-sqlite3';
  * v11 — concept scoring + retirement (score, retired_at, retire_reason on concepts; concept_feedback table)
  * v12 — concept_aliases table (merge near-duplicates on write; aliases follow to canonical)
  * v13 — exploration-cost telemetry (tokens_spent, skill_hit, exploration_depth, scope_kind, scope_key on query_log)
+ * v14 — trajectory review pass (session_review table — records per-session LLM extraction outcomes)
  */
-const CURRENT_VERSION = 13;
+const CURRENT_VERSION = 14;
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS sources (
@@ -168,6 +169,17 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS idx_query_log_ts ON query_log(timestamp);
   CREATE INDEX IF NOT EXISTS idx_query_log_skill_hit ON query_log(skill_hit);
   CREATE INDEX IF NOT EXISTS idx_query_log_scope ON query_log(scope_kind, scope_key);
+
+  CREATE TABLE IF NOT EXISTS session_review (
+    session_id    TEXT PRIMARY KEY,
+    reviewed_at   TEXT NOT NULL,
+    outcome       TEXT NOT NULL CHECK (outcome IN ('extracted', 'no_skill', 'failed', 'skipped')),
+    trajectory_id TEXT,
+    notes         TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_session_review_outcome ON session_review(outcome);
+  CREATE INDEX IF NOT EXISTS idx_session_review_at      ON session_review(reviewed_at);
 
   CREATE TABLE IF NOT EXISTS profile_snapshot (
     id INTEGER PRIMARY KEY CHECK (id = 1),

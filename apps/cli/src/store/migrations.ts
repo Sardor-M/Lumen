@@ -208,6 +208,22 @@ const migrations: Record<number, Migration> = {
             CREATE INDEX IF NOT EXISTS idx_query_log_scope     ON query_log(scope_kind, scope_key);
         `);
     },
+
+    /** v14 — trajectory review pass: per-session LLM extraction outcome record. */
+    14: (db) => {
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS session_review (
+                session_id    TEXT PRIMARY KEY,
+                reviewed_at   TEXT NOT NULL,
+                outcome       TEXT NOT NULL CHECK (outcome IN ('extracted', 'no_skill', 'failed', 'skipped')),
+                trajectory_id TEXT,
+                notes         TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_session_review_outcome ON session_review(outcome);
+            CREATE INDEX IF NOT EXISTS idx_session_review_at      ON session_review(reviewed_at);
+        `);
+    },
 };
 
 export function runMigrations(
