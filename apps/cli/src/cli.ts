@@ -18,6 +18,7 @@ import { registerWatch } from './commands/watch.js';
 import { registerDaemon } from './commands/daemon.js';
 import { registerEmbed } from './commands/embed.js';
 import { registerEnrich } from './commands/enrich.js';
+import { registerReview } from './commands/review.js';
 
 /**
  * Load .env before any command runs — the globally-installed bin won't pick up
@@ -76,6 +77,7 @@ if (process.argv.includes('--mcp')) {
     registerDaemon(program);
     registerEmbed(program);
     registerEnrich(program);
+    registerReview(program);
     registerInstall(program);
 
     program.parse();

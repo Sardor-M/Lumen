@@ -4,7 +4,8 @@ import { countEdges } from '../store/edges.js';
 import { godNodes } from '../graph/engine.js';
 import { pagerank } from '../graph/pagerank.js';
 import { detectCommunities } from '../graph/cluster.js';
-import { recentQueries, frequentTopics } from '../store/query-log.js';
+import { recentQueries, frequentTopics, explorationCostAvoided } from '../store/query-log.js';
+import type { ExplorationCostAvoided, ScopeTelemetry } from '../store/query-log.js';
 import type { SourceType } from '../types/index.js';
 
 type ProfileStatic = {
@@ -28,6 +29,16 @@ type ProfileDynamic = {
 type ProfileLearned = {
     frequent_topics: Array<{ query_text: string; count: number }>;
     recent_queries: Array<{ tool_name: string; query_text: string | null; timestamp: string }>;
+    /**
+     * Exploration-cost telemetry over the last 7 days. Computed from
+     * `query_log` skill-hit counts and tokens-spent per session. Empty
+     * windows return zeros.
+     */
+    skill_hit_rate_7d: number;
+    exploration_cost_avoided_7d_tokens: number;
+    exploration_cost_avoided_7d_usd: number;
+    /** Per-scope breakdown sorted by tokens saved, descending. */
+    by_scope: ScopeTelemetry[];
 };
 
 export type LumenProfile = {
@@ -110,7 +121,23 @@ export function buildProfile(): LumenProfile {
         learned: {
             frequent_topics: frequentTopics(10),
             recent_queries: recentQueries(10),
+            ...telemetryFields(explorationCostAvoided(7)),
         },
         generated_at: new Date().toISOString(),
+    };
+}
+
+/** Project the aggregator output onto the slice that lives in `profile.learned`. */
+function telemetryFields(t: ExplorationCostAvoided): {
+    skill_hit_rate_7d: number;
+    exploration_cost_avoided_7d_tokens: number;
+    exploration_cost_avoided_7d_usd: number;
+    by_scope: ScopeTelemetry[];
+} {
+    return {
+        skill_hit_rate_7d: Math.round(t.hit_rate * 10000) / 10000,
+        exploration_cost_avoided_7d_tokens: t.estimated_savings_tokens,
+        exploration_cost_avoided_7d_usd: t.estimated_savings_usd,
+        by_scope: t.by_scope,
     };
 }
