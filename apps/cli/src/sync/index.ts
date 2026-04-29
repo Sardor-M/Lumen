@@ -33,3 +33,18 @@ export type {
     RetirePayload,
     ConceptCreatePayload,
 } from './types.js';
+
+export {
+    generateMasterKey,
+    deriveUserHash,
+    deriveScopeRoutingTag,
+    fingerprintMasterKey,
+    encryptEnvelope,
+    decryptEnvelope,
+    MASTER_KEY_BYTES,
+    XCHACHA_NONCE_BYTES,
+    USER_HASH_HEX_LENGTH,
+    SCOPE_TAG_HEX_LENGTH,
+} from './crypto.js';
+
+export type { EncryptionEnvelope } from './crypto.js';
