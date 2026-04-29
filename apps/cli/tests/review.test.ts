@@ -410,6 +410,7 @@ describe('reviewSessions orchestrator', () => {
                 steps: [
                     { tool: 'read', args: {}, result_summary: 'ok', result_ok: true },
                     { tool: 'edit', args: {}, result_summary: 'ok', result_ok: true },
+                    { tool: 'bash', args: {}, result_summary: 'ok', result_ok: true },
                 ],
             }),
             autoCapture: false,
@@ -433,6 +434,7 @@ describe('reviewSessions orchestrator', () => {
                 steps: [
                     { tool: 'read', args: {}, result_summary: 'ok', result_ok: true },
                     { tool: 'edit', args: {}, result_summary: 'patched', result_ok: true },
+                    { tool: 'bash', args: {}, result_summary: 'ok', result_ok: true },
                 ],
             }),
             autoCapture: true,

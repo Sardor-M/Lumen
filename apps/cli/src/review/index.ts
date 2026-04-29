@@ -65,7 +65,11 @@ export async function reviewSessions(
     for (const sessionId of candidates) {
         summary.sessions_inspected++;
         const session = loadSessionLog(sessionId);
-        if (!session) continue;
+        if (!session) {
+            recordReview({ session_id: sessionId, outcome: 'skipped', notes: 'session log unavailable' });
+            summary.sessions_skipped++;
+            continue;
+        }
 
         const skipReason = shouldSkip(session);
         if (skipReason) {

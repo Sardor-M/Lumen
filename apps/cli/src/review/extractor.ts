@@ -79,7 +79,7 @@ Do NOT add any prose, markdown, or commentary outside the JSON. Do NOT
 fabricate args or results — quote what the session actually shows. Cap
 steps at 15 by collapsing redundant ones.`;
 
-const MIN_STEPS = 2;
+const MIN_STEPS = 3;
 const MAX_STEPS = 15;
 
 export type ExtractOptions = {
