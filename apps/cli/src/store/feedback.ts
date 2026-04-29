@@ -17,6 +17,7 @@ import type { ConceptFeedback } from '../types/index.js';
 import { RETIRE_THRESHOLD } from '../types/index.js';
 import { updateScore } from './concepts.js';
 import { resolveAlias } from './aliases.js';
+import { appendJournal } from '../sync/journal.js';
 
 export type RecordFeedbackInput = {
     slug: string;
@@ -42,19 +43,48 @@ export function recordFeedback(input: RecordFeedbackInput): RecordFeedbackResult
     const now = new Date().toISOString();
     const slug = resolveAlias(input.slug);
 
-    const info = db
-        .prepare(
-            `INSERT INTO concept_feedback (concept_slug, delta, reason, session_id, device_id, created_at)
-             VALUES (@slug, @delta, @reason, @session_id, @device_id, @created_at)`,
-        )
-        .run({
-            slug,
-            delta: input.delta,
-            reason: input.reason ?? null,
-            session_id: input.session_id ?? null,
-            device_id: input.device_id ?? null,
-            created_at: now,
-        });
+    /**
+     * Insert + journal in a single transaction so concept_feedback and
+     * sync_journal stay consistent across crashes. Score recomputation +
+     * auto-retire happen after; they're idempotent reads/writes the journal
+     * doesn't need to mirror (peer devices apply feedback rows via the same
+     * append-only sum, so each device computes score locally from its own
+     * feedback table).
+     */
+    const inserted = db.transaction(() => {
+        const result = db
+            .prepare(
+                `INSERT INTO concept_feedback (concept_slug, delta, reason, session_id, device_id, created_at)
+                 VALUES (@slug, @delta, @reason, @session_id, @device_id, @created_at)`,
+            )
+            .run({
+                slug,
+                delta: input.delta,
+                reason: input.reason ?? null,
+                session_id: input.session_id ?? null,
+                device_id: input.device_id ?? null,
+                created_at: now,
+            });
+
+        const scope = db
+            .prepare('SELECT scope_kind, scope_key FROM concepts WHERE slug = ?')
+            .get(slug) as { scope_kind: string; scope_key: string } | undefined;
+        if (scope) {
+            appendJournal({
+                op: 'feedback',
+                entity_id: slug,
+                scope_kind: scope.scope_kind as never,
+                scope_key: scope.scope_key,
+                payload: {
+                    concept_slug: slug,
+                    delta: input.delta,
+                    reason: input.reason ?? null,
+                    session_id: input.session_id ?? null,
+                },
+            });
+        }
+        return result;
+    })();
 
     const newScore = feedbackTotal(slug);
 
@@ -77,7 +107,7 @@ export function recordFeedback(input: RecordFeedbackInput): RecordFeedbackResult
     const retiredNow = wasActive && afterState !== undefined && afterState.retired_at !== null;
 
     return {
-        feedback_id: Number(info.lastInsertRowid),
+        feedback_id: Number(inserted.lastInsertRowid),
         new_score: newScore,
         retired: retiredNow,
     };
