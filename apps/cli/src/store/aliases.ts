@@ -49,8 +49,9 @@ function rowToAlias(row: RawAliasRow): AliasRow {
 }
 
 /**
- * Record a new alias. Idempotent: re-inserting the same alias keeps the
- * original `canonical_slug` and `merged_at` (first writer wins).
+ * Record a new alias. Idempotent only when all fields match the existing row
+ * (first writer wins). Throws when the same alias slug is already bound to a
+ * different canonical or scope — callers must not silently re-bind aliases.
  *
  * Defensive guard: refuses to record an alias whose `canonical_slug` is itself
  * already an alias. Aliases must always point at a real concept row, never
@@ -80,7 +81,7 @@ export function recordAlias(input: {
     }
 
     const now = new Date().toISOString();
-    getStmt(
+    const result = getStmt(
         db,
         `INSERT INTO concept_aliases (alias, canonical_slug, scope_kind, scope_key, merged_at, merge_reason)
          VALUES (@alias, @canonical_slug, @scope_kind, @scope_key, @merged_at, @merge_reason)
@@ -93,6 +94,26 @@ export function recordAlias(input: {
         merged_at: now,
         merge_reason: input.merge_reason ?? null,
     });
+
+    if (result.changes === 0) {
+        const existing = getStmt(
+            db,
+            'SELECT canonical_slug, scope_kind, scope_key FROM concept_aliases WHERE alias = ?',
+        ).get(input.alias) as
+            | { canonical_slug: string; scope_kind: string; scope_key: string }
+            | undefined;
+        if (
+            existing &&
+            (existing.canonical_slug !== input.canonical_slug ||
+                existing.scope_kind !== input.scope_kind ||
+                existing.scope_key !== input.scope_key)
+        ) {
+            throw new Error(
+                `recordAlias: alias "${input.alias}" is already bound to ` +
+                    `"${existing.canonical_slug}" in ${existing.scope_kind}/${existing.scope_key}.`,
+            );
+        }
+    }
 }
 
 /**

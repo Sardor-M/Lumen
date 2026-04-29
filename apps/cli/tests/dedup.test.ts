@@ -247,7 +247,27 @@ describe('aliases store', () => {
         expect(resolveAlias('not-aliased')).toBe('not-aliased');
     });
 
-    it('recordAlias is idempotent (second insert preserves first canonical)', () => {
+    it('recordAlias is idempotent when all fields match', () => {
+        seedConcept('a-canon');
+        recordAlias({
+            alias: 'shared',
+            canonical_slug: 'a-canon',
+            scope_kind: 'codebase',
+            scope_key: 'repo-a',
+        });
+        /** Exact same params — must not throw. */
+        expect(() =>
+            recordAlias({
+                alias: 'shared',
+                canonical_slug: 'a-canon',
+                scope_kind: 'codebase',
+                scope_key: 'repo-a',
+            }),
+        ).not.toThrow();
+        expect(resolveAlias('shared')).toBe('a-canon');
+    });
+
+    it('recordAlias throws when alias is already bound to a different canonical', () => {
         seedConcept('a-canon');
         seedConcept('b-canon');
         recordAlias({
@@ -256,13 +276,14 @@ describe('aliases store', () => {
             scope_kind: 'codebase',
             scope_key: 'repo-a',
         });
-        recordAlias({
-            alias: 'shared',
-            canonical_slug: 'b-canon',
-            scope_kind: 'codebase',
-            scope_key: 'repo-a',
-        });
-        expect(resolveAlias('shared')).toBe('a-canon');
+        expect(() =>
+            recordAlias({
+                alias: 'shared',
+                canonical_slug: 'b-canon',
+                scope_kind: 'codebase',
+                scope_key: 'repo-a',
+            }),
+        ).toThrow(/already bound to/i);
     });
 
     it('listAliases returns aliases pointing at a canonical', () => {
