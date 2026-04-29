@@ -12,6 +12,7 @@ import { findMergeCandidate } from '../dedup/index.js';
 import type { MergeCandidate } from '../dedup/index.js';
 import { recordAlias, resolveAlias } from './aliases.js';
 import { getStmt } from './prepared.js';
+import { appendJournal } from '../sync/journal.js';
 
 /** Parse the raw `timeline` JSON column into a typed array, newest first. */
 function parseTimeline(raw: unknown): TimelineEntry[] {
@@ -118,8 +119,16 @@ export function upsertConcept(
         }
     }
 
-    db.prepare(
-        `INSERT INTO concepts (slug, name, summary, compiled_truth, article, created_at, updated_at, mention_count, scope_kind, scope_key)
+    /**
+     * Wrap the upsert + journal append in a single transaction so a crash
+     * between them can't leave the journal out of sync with the concepts
+     * table. The journal append only fires on the new-insert path; the
+     * ON CONFLICT update path is just a mention_count bump and not worth
+     * shipping to peer devices.
+     */
+    const insertAndJournal = db.transaction(() => {
+        db.prepare(
+            `INSERT INTO concepts (slug, name, summary, compiled_truth, article, created_at, updated_at, mention_count, scope_kind, scope_key)
        VALUES (@slug, @name, @summary, @compiled_truth, @article, @created_at, @updated_at, @mention_count, @scope_kind, @scope_key)
        ON CONFLICT(slug) DO UPDATE SET
          name         = @name,
@@ -128,18 +137,35 @@ export function upsertConcept(
          article      = COALESCE(@article, concepts.article),
          updated_at   = @updated_at,
          mention_count = concepts.mention_count + 1`,
-    ).run({
-        slug: targetSlug,
-        name: concept.name,
-        summary: concept.summary ?? null,
-        compiled_truth: concept.compiled_truth ?? null,
-        article: concept.article ?? null,
-        created_at: concept.created_at,
-        updated_at: concept.updated_at,
-        mention_count: concept.mention_count,
-        scope_kind,
-        scope_key,
+        ).run({
+            slug: targetSlug,
+            name: concept.name,
+            summary: concept.summary ?? null,
+            compiled_truth: concept.compiled_truth ?? null,
+            article: concept.article ?? null,
+            created_at: concept.created_at,
+            updated_at: concept.updated_at,
+            mention_count: concept.mention_count,
+            scope_kind,
+            scope_key,
+        });
+
+        if (!knownSlug) {
+            appendJournal({
+                op: 'concept_create',
+                entity_id: targetSlug,
+                scope_kind,
+                scope_key,
+                payload: {
+                    slug: targetSlug,
+                    name: concept.name,
+                    summary: concept.summary ?? null,
+                    compiled_truth: concept.compiled_truth ?? null,
+                },
+            });
+        }
     });
+    insertAndJournal();
     invalidateProfile();
 }
 
@@ -303,16 +329,38 @@ export function updateScore(slug: string, score: number, reason?: string | null)
 
 /**
  * Explicitly retire a concept. Idempotent - re-retiring keeps the original
- * `retired_at` timestamp and reason intact.
+ * `retired_at` timestamp and reason intact. Journals on the *first*
+ * retirement only; subsequent re-retire calls don't ship a duplicate
+ * journal entry (peer devices already received the original).
  */
 export function retireConcept(slug: string, reason: string): void {
     const db = getDb();
-    db.prepare(
-        `UPDATE concepts
-         SET retired_at = COALESCE(retired_at, ?),
-             retire_reason = COALESCE(retire_reason, ?)
-         WHERE slug = ?`,
-    ).run(new Date().toISOString(), reason, resolveAlias(slug));
+    const target = resolveAlias(slug);
+
+    const retireAndJournal = db.transaction(() => {
+        const before = db
+            .prepare('SELECT retired_at, scope_kind, scope_key FROM concepts WHERE slug = ?')
+            .get(target) as
+            | { retired_at: string | null; scope_kind: string; scope_key: string }
+            | undefined;
+        if (!before) return;
+        db.prepare(
+            `UPDATE concepts
+             SET retired_at = COALESCE(retired_at, ?),
+                 retire_reason = COALESCE(retire_reason, ?)
+             WHERE slug = ?`,
+        ).run(new Date().toISOString(), reason, target);
+        if (before.retired_at === null) {
+            appendJournal({
+                op: 'retire',
+                entity_id: target,
+                scope_kind: before.scope_kind as never,
+                scope_key: before.scope_key,
+                payload: { concept_slug: target, reason },
+            });
+        }
+    });
+    retireAndJournal();
     invalidateProfile();
 }
 
@@ -333,13 +381,39 @@ export function updateArticle(slug: string, article: string): void {
 /**
  * Replace the mutable compiled_truth section with a new synthesis.
  * Called by the compiler whenever new evidence materially changes the picture.
+ *
+ * Journals `op = 'truth_update'` so peer devices can apply LWW conflict
+ * resolution on `updated_at`.
  */
 export function updateCompiledTruth(slug: string, truth: string): void {
-    getDb()
-        .prepare(
-            `UPDATE concepts SET compiled_truth = ?, summary = ?, updated_at = ? WHERE slug = ?`,
-        )
-        .run(truth, truth, new Date().toISOString(), resolveAlias(slug));
+    const db = getDb();
+    const target = resolveAlias(slug);
+    const now = new Date().toISOString();
+
+    const updateAndJournal = db.transaction(() => {
+        const result = db
+            .prepare(
+                `UPDATE concepts SET compiled_truth = ?, summary = ?, updated_at = ? WHERE slug = ?`,
+            )
+            .run(truth, truth, now, target);
+        if (result.changes === 0) return;
+        const scope = db
+            .prepare('SELECT scope_kind, scope_key FROM concepts WHERE slug = ?')
+            .get(target) as { scope_kind: string; scope_key: string } | undefined;
+        if (!scope) return;
+        appendJournal({
+            op: 'truth_update',
+            entity_id: target,
+            scope_kind: scope.scope_kind as never,
+            scope_key: scope.scope_key,
+            payload: {
+                concept_slug: target,
+                new_truth: truth,
+                updated_at: now,
+            },
+        });
+    });
+    updateAndJournal();
 }
 
 /**

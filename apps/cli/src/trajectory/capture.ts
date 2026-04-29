@@ -22,6 +22,8 @@ import { resolveCodebase } from '../scope/index.js';
 import { readGitRevision } from './git.js';
 import { shortId, contentHash } from '../utils/hash.js';
 import { estimateTokens } from '../compress/tokenizer.js';
+import { appendJournal } from '../sync/journal.js';
+import { getDb } from '../store/database.js';
 import type { Chunk, ScopeKind } from '../types/index.js';
 import type {
     CaptureResult,
@@ -92,33 +94,53 @@ export function captureTrajectory(input: CaptureTrajectoryInput): CaptureResult 
         0,
     );
 
-    insertSource({
-        id: source_id,
-        title: metadata.task,
-        url: null,
-        content: metadataJson,
-        content_hash: contentHash(metadataJson),
-        source_type: 'trajectory',
-        added_at: now,
-        compiled_at: null,
-        word_count: wordCount,
-        language: null,
-        metadata: metadataJson,
-        scope_kind: scope.kind,
-        scope_key: scope.key,
-    });
-
     /**
-     * Touch the scopes registry so the codebase appears in `lumen scope list`.
-     * Don't try to read `scope.label` here - the input scope from the agent only
-     * carries (kind, key); only the resolver-produced scope has a label, and we
-     * deliberately drop it to keep this code path uniform.
+     * Source insert + chunks insert + journal append in a single transaction.
+     * Pulls on a peer device replay this trajectory by inserting source +
+     * chunks from the journal payload — so the payload carries the full
+     * metadata, including pre-truncated steps.
      */
-    if (scope.kind === 'codebase') {
-        upsertScope({ kind: scope.kind, key: scope.key });
-    }
+    const captureAndJournal = getDb().transaction(() => {
+        insertSource({
+            id: source_id,
+            title: metadata.task,
+            url: null,
+            content: metadataJson,
+            content_hash: contentHash(metadataJson),
+            source_type: 'trajectory',
+            added_at: now,
+            compiled_at: null,
+            word_count: wordCount,
+            language: null,
+            metadata: metadataJson,
+            scope_kind: scope.kind,
+            scope_key: scope.key,
+        });
 
-    insertChunks(buildChunks(source_id, metadata));
+        /**
+         * Touch the scopes registry so the codebase appears in `lumen scope list`.
+         * Don't try to read `scope.label` here - the input scope from the agent only
+         * carries (kind, key); only the resolver-produced scope has a label, and we
+         * deliberately drop it to keep this code path uniform.
+         */
+        if (scope.kind === 'codebase') {
+            upsertScope({ kind: scope.kind, key: scope.key });
+        }
+
+        insertChunks(buildChunks(source_id, metadata));
+
+        appendJournal({
+            op: 'trajectory',
+            entity_id: source_id,
+            scope_kind: scope.kind,
+            scope_key: scope.key,
+            payload: {
+                source_id,
+                metadata: metadata as unknown as Record<string, unknown>,
+            },
+        });
+    });
+    captureAndJournal();
 
     return {
         source_id,
@@ -182,4 +204,3 @@ function renderArgsForFts(args: Record<string, unknown>): string {
     const joined = parts.join(' ');
     return joined.length > 200 ? joined.slice(0, 197) + '...' : joined;
 }
-

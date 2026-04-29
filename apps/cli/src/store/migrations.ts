@@ -224,6 +224,44 @@ const migrations: Record<number, Migration> = {
             CREATE INDEX IF NOT EXISTS idx_session_review_at      ON session_review(reviewed_at);
         `);
     },
+
+    /** v15 — sync journal foundation: singleton sync_state + append-only sync_journal log. */
+    15: (db) => {
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS sync_state (
+                id                          INTEGER PRIMARY KEY CHECK (id = 1),
+                device_id                   TEXT NOT NULL,
+                user_hash                   TEXT,
+                relay_url                   TEXT,
+                last_pull_cursor            TEXT,
+                last_push_cursor            TEXT,
+                encryption_key_fingerprint  TEXT,
+                enabled                     INTEGER NOT NULL DEFAULT 0,
+                last_pull_at                TEXT,
+                last_push_at                TEXT,
+                last_error                  TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS sync_journal (
+                sync_id      TEXT PRIMARY KEY,
+                op           TEXT NOT NULL CHECK (op IN ('trajectory', 'feedback', 'truth_update', 'retire', 'concept_create')),
+                entity_id    TEXT NOT NULL,
+                scope_kind   TEXT NOT NULL,
+                scope_key    TEXT NOT NULL,
+                payload      TEXT NOT NULL,
+                device_id    TEXT NOT NULL,
+                created_at   TEXT NOT NULL,
+                pushed_at    TEXT,
+                pulled_at    TEXT,
+                applied_at   TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_journal_pushed  ON sync_journal(pushed_at);
+            CREATE INDEX IF NOT EXISTS idx_journal_op      ON sync_journal(op);
+            CREATE INDEX IF NOT EXISTS idx_journal_scope   ON sync_journal(scope_kind, scope_key);
+            CREATE INDEX IF NOT EXISTS idx_journal_applied ON sync_journal(applied_at);
+        `);
+    },
 };
 
 export function runMigrations(
