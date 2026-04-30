@@ -230,10 +230,16 @@ async function doPull(ctx: Context, opts: DriverOptions, result: SyncResult): Pr
 
     let cursor = state.last_pull_cursor ?? undefined;
     let totalInserted = 0;
+    /**
+     * Bounds work per pull cycle. `totalInserted` only counts new rows, so
+     * a relay that streams pages of duplicates would slip past the cap if
+     * we used it as the loop guard. Track entries seen instead.
+     */
+    let totalProcessed = 0;
 
     /** Loop until the relay has nothing more (or we hit batchSize cap). */
-    while (totalInserted < batchSize) {
-        const remaining = batchSize - totalInserted;
+    while (totalProcessed < batchSize) {
+        const remaining = batchSize - totalProcessed;
         const batch = await getJournal(
             ctx.relayUrl,
             ctx.userHash,
@@ -245,6 +251,7 @@ async function doPull(ctx: Context, opts: DriverOptions, result: SyncResult): Pr
         for (const remote of batch.entries) {
             const inserted = applyPulledEntry(remote, ctx.masterKey, result);
             if (inserted) totalInserted++;
+            totalProcessed++;
         }
 
         if (!batch.next_cursor) break;

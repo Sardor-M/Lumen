@@ -20,7 +20,7 @@
  * The key is stored base64-encoded so the keychain doesn't see a binary blob.
  */
 
-import { execFileSync, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync, unlinkSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { getDataDir } from '../utils/paths.js';
@@ -115,12 +115,24 @@ export function hasMasterKey(): boolean {
 /** ─── macOS (security CLI) ─── */
 
 function setMacOS(b64: string): void {
-    /** -U updates if the entry already exists. */
-    execFileSync(
+    /**
+     * Per `man security`: putting `-w` last with no value makes the command
+     * read the password from stdin. We feed it via spawnSync's `input`
+     * option so the key never appears in the process list (vs. `-w <key>`,
+     * which `ps auxww` would expose to any local user).
+     *
+     * `-U` upserts if an entry for (service, account) already exists.
+     */
+    const r = spawnSync(
         'security',
-        ['add-generic-password', '-s', SERVICE, '-a', ACCOUNT, '-w', b64, '-U'],
-        { stdio: 'pipe' },
+        ['add-generic-password', '-U', '-s', SERVICE, '-a', ACCOUNT, '-w'],
+        { input: `${b64}\n`, encoding: 'utf-8' },
     );
+    if (r.status !== 0) {
+        throw new Error(
+            `security add-generic-password failed: ${r.stderr?.trim() || 'unknown error'}`,
+        );
+    }
 }
 
 function getMacOS(): string | null {

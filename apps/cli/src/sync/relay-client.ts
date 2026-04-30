@@ -120,18 +120,20 @@ export async function deleteJournal(
  * BACKOFF_CAP_MS). Otherwise back off exponentially: 1s, 2s, 4s, 8s, 16s.
  */
 async function retrying(attempt: () => Promise<Response>, label: string): Promise<Response> {
-    let lastErr: unknown = null;
+    let lastErr: Error | null = null;
     for (let i = 0; i < MAX_RETRIES; i++) {
         try {
             const res = await attempt();
             if (res.status >= 200 && res.status < 300) return res;
 
             if (res.status === 429) {
+                lastErr = new Error(`429 ${res.statusText}`);
                 const ra = parseRetryAfter(res.headers.get('retry-after'));
                 await sleep(ra ?? backoffMs(i));
                 continue;
             }
             if (res.status >= 500) {
+                lastErr = new Error(`${res.status} ${res.statusText}`);
                 await sleep(backoffMs(i));
                 continue;
             }
@@ -143,12 +145,12 @@ async function retrying(attempt: () => Promise<Response>, label: string): Promis
             );
         } catch (err) {
             if (err instanceof RelayError) throw err;
-            lastErr = err;
+            lastErr = err instanceof Error ? err : new Error(String(err));
             await sleep(backoffMs(i));
         }
     }
     throw new RelayError(
-        `${label} exhausted ${MAX_RETRIES} retries: ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`,
+        `${label} exhausted ${MAX_RETRIES} retries: ${lastErr?.message ?? 'unknown'}`,
         0,
     );
 }
