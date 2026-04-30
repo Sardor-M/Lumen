@@ -26,6 +26,27 @@ export {
 } from './keyring.js';
 export type { KeyringBackend } from './keyring.js';
 
+export { postJournal, getJournal, deleteJournal, RelayError } from './relay-client.js';
+export type {
+    PushBatch,
+    PushEntry,
+    PushResult,
+    PullBatch,
+    PullEntry,
+    GetJournalOptions,
+    FetchLike,
+} from './relay-client.js';
+
+export {
+    runPush,
+    runPull,
+    runSync,
+    clearLastError,
+    computeLocalScopeTags,
+    resetCircuitBreakerForTests,
+} from './sync-driver.js';
+export type { SyncResult, DriverOptions } from './sync-driver.js';
+
 export {
     getOrInitSyncState,
     setEnabled,
