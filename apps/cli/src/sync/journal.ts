@@ -143,6 +143,50 @@ export function listUnapplied(limit?: number): JournalEntry[] {
     return rows.map(rowToEntry);
 }
 
+/**
+ * Insert a journal entry pulled from the relay. Idempotent on `sync_id` —
+ * if the entry already exists locally (we wrote it ourselves, or already
+ * pulled it on a prior cycle), the row is left untouched and the function
+ * returns `false`. Returns `true` when a new row was inserted.
+ *
+ * Sets `pulled_at = now`; leaves `pushed_at`, `applied_at` null. Tier 5e's
+ * apply pass walks `pulled_at IS NOT NULL AND applied_at IS NULL` to drive
+ * remote→local mutations.
+ */
+export function insertPulled(input: {
+    sync_id: string;
+    op: JournalOp;
+    entity_id: string;
+    scope_kind: ScopeKind;
+    scope_key: string;
+    payload: Record<string, unknown>;
+    device_id: string;
+    created_at: string;
+}): boolean {
+    const pulled_at = new Date().toISOString();
+    const result = getDb()
+        .prepare(
+            `INSERT INTO sync_journal (
+                 sync_id, op, entity_id, scope_kind, scope_key, payload,
+                 device_id, created_at, pulled_at
+             )
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(sync_id) DO NOTHING`,
+        )
+        .run(
+            input.sync_id,
+            input.op,
+            input.entity_id,
+            input.scope_kind,
+            input.scope_key,
+            JSON.stringify(input.payload),
+            input.device_id,
+            input.created_at,
+            pulled_at,
+        );
+    return result.changes > 0;
+}
+
 /** Bulk-mark entries as pushed. Idempotent: re-marking already-pushed entries is a no-op timestamp update. */
 export function markPushed(syncIds: string[]): void {
     if (syncIds.length === 0) return;

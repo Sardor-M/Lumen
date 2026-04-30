@@ -121,6 +121,19 @@ export function updateCursor(input: {
     }
 }
 
+/**
+ * Stamp `last_push_at = now` without touching the cursor. Push is per-entry
+ * (each row's `pushed_at` is set by `markPushed`), so there's no meaningful
+ * "push cursor" — but the status display reads `sync_state.last_push_at`,
+ * which would otherwise stay null forever.
+ */
+export function setLastPushAt(): void {
+    getOrInitSyncState();
+    getDb()
+        .prepare('UPDATE sync_state SET last_push_at = ? WHERE id = 1')
+        .run(new Date().toISOString());
+}
+
 export function setLastError(error: string | null): void {
     getOrInitSyncState();
     getDb().prepare('UPDATE sync_state SET last_error = ? WHERE id = 1').run(error);

@@ -9,11 +9,50 @@ export {
     appendJournal,
     listUnpushed,
     listUnapplied,
+    insertPulled,
     markPushed,
     markApplied,
     countJournal,
     countUnpushed,
 } from './journal.js';
+
+export {
+    setMasterKey,
+    getMasterKey,
+    deleteMasterKey,
+    hasMasterKey,
+    setKeyringBackend,
+    getKeyringBackend,
+} from './keyring.js';
+export type { KeyringBackend } from './keyring.js';
+
+export {
+    postJournal,
+    getJournal,
+    deleteJournal,
+    relayError,
+    isRelayError,
+} from './relay-client.js';
+export type {
+    RelayError,
+    PushBatch,
+    PushEntry,
+    PushResult,
+    PullBatch,
+    PullEntry,
+    GetJournalOptions,
+    FetchLike,
+} from './relay-client.js';
+
+export {
+    runPush,
+    runPull,
+    runSync,
+    clearLastError,
+    computeLocalScopeTags,
+    resetCircuitBreakerForTests,
+} from './sync-driver.js';
+export type { SyncResult, DriverOptions } from './sync-driver.js';
 
 export {
     getOrInitSyncState,
