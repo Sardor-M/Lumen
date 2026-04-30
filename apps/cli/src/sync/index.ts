@@ -26,8 +26,15 @@ export {
 } from './keyring.js';
 export type { KeyringBackend } from './keyring.js';
 
-export { postJournal, getJournal, deleteJournal, RelayError } from './relay-client.js';
+export {
+    postJournal,
+    getJournal,
+    deleteJournal,
+    relayError,
+    isRelayError,
+} from './relay-client.js';
 export type {
+    RelayError,
     PushBatch,
     PushEntry,
     PushResult,

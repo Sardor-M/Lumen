@@ -6,7 +6,7 @@ beforeAll(() => {
 afterAll(() => {
     delete process.env.LUMEN_RELAY_NO_BACKOFF;
 });
-import { postJournal, getJournal, deleteJournal, RelayError } from '../src/sync/relay-client.js';
+import { postJournal, getJournal, deleteJournal, isRelayError } from '../src/sync/relay-client.js';
 import type { FetchLike, PushBatch } from '../src/sync/relay-client.js';
 import type { EncryptionEnvelope } from '../src/sync/crypto.js';
 
@@ -62,9 +62,10 @@ describe('postJournal', () => {
             calls++;
             return new Response('bad request', { status: 400 });
         };
-        await expect(postJournal('https://r/', 'u', pushBatch(), fetchImpl)).rejects.toThrow(
-            RelayError,
-        );
+        await expect(postJournal('https://r/', 'u', pushBatch(), fetchImpl)).rejects.toMatchObject({
+            name: 'RelayError',
+            status: 400,
+        });
         expect(calls).toBe(1);
     });
 
@@ -203,10 +204,24 @@ describe('retry/backoff', () => {
             calls++;
             return new Response('bad', { status: 500 });
         };
-        await expect(postJournal('https://r', 'u', pushBatch(), fetchImpl)).rejects.toThrow(
-            RelayError,
-        );
+        await expect(postJournal('https://r', 'u', pushBatch(), fetchImpl)).rejects.toMatchObject({
+            name: 'RelayError',
+            status: 0,
+        });
         expect(calls).toBe(5);
+    });
+
+    it('isRelayError type guard returns true for thrown errors and false for plain Errors', async () => {
+        const fetchImpl: FetchLike = async () => new Response('bad', { status: 400 });
+        let caught: unknown = null;
+        try {
+            await postJournal('https://r', 'u', pushBatch(), fetchImpl);
+        } catch (err) {
+            caught = err;
+        }
+        expect(isRelayError(caught)).toBe(true);
+        expect(isRelayError(new Error('plain'))).toBe(false);
+        expect(isRelayError('string')).toBe(false);
     });
 
     it('retries on a thrown network error then succeeds', async () => {

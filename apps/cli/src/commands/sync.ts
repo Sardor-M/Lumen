@@ -66,17 +66,24 @@ export function registerSync(program: Command): void {
 
                 const userHash = deriveUserHash(key);
                 const fingerprint = fingerprintMasterKey(key);
+                /**
+                 * Conditional spread: passing `relay_url: null` would overwrite a
+                 * previously-stored relay URL when re-running `sync init` without
+                 * `--relay`. setRelayConfig only skips fields that are `undefined`,
+                 * not `null`, so omit the key entirely unless `--relay` was given.
+                 */
                 setRelayConfig({
                     user_hash: userHash,
-                    relay_url: opts.relay ?? null,
+                    ...(opts.relay !== undefined ? { relay_url: opts.relay } : {}),
                     encryption_key_fingerprint: fingerprint,
                 });
 
+                const state = getOrInitSyncState();
                 log.heading('Sync identity');
                 log.table({
                     user_hash: userHash,
                     fingerprint,
-                    relay: opts.relay ?? '(unset)',
+                    relay: state.relay_url ?? '(unset)',
                     keyring: getKeyringBackend(),
                 });
                 log.dim('\nNext: `lumen sync enable` to start pushing/pulling.');
@@ -302,5 +309,11 @@ function logResult(
     });
     if (result.errors.length > 0) {
         for (const e of result.errors) log.dim(`  - ${e}`);
+        /**
+         * Surface a non-zero exit so shell pipelines can detect a failed
+         * sync (e.g. `lumen sync run && deploy.sh`). Without this, push
+         * failures look identical to a clean run from the shell's POV.
+         */
+        process.exitCode = 1;
     }
 }

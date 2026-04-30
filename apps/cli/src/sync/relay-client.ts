@@ -139,30 +139,48 @@ async function retrying(attempt: () => Promise<Response>, label: string): Promis
             }
             /** 4xx (non-429): non-retryable. Pull the body for diagnostics. */
             const body = await res.text().catch(() => '');
-            throw new RelayError(
+            throw relayError(
                 `${label} failed: ${res.status} ${res.statusText}${body ? ` — ${body}` : ''}`,
                 res.status,
             );
         } catch (err) {
-            if (err instanceof RelayError) throw err;
+            if (isRelayError(err)) throw err;
             lastErr = err instanceof Error ? err : new Error(String(err));
             await sleep(backoffMs(i));
         }
     }
-    throw new RelayError(
+    throw relayError(
         `${label} exhausted ${MAX_RETRIES} retries: ${lastErr?.message ?? 'unknown'}`,
         0,
     );
 }
 
-export class RelayError extends Error {
-    constructor(
-        message: string,
-        public readonly status: number,
-    ) {
-        super(message);
-        this.name = 'RelayError';
-    }
+/**
+ * Branded error returned/thrown by relay-client functions. The brand keeps
+ * `isRelayError` reliable across realm boundaries (which `instanceof` is not)
+ * and complies with the project's no-classes rule.
+ */
+export type RelayError = Error & {
+    readonly __brand_RelayError: true;
+    readonly status: number;
+};
+
+export function relayError(message: string, status: number): RelayError {
+    const err = new Error(message) as Error & {
+        __brand_RelayError?: true;
+        status?: number;
+    };
+    err.name = 'RelayError';
+    err.__brand_RelayError = true;
+    err.status = status;
+    return err as RelayError;
+}
+
+export function isRelayError(err: unknown): err is RelayError {
+    return (
+        err instanceof Error &&
+        (err as { __brand_RelayError?: unknown }).__brand_RelayError === true
+    );
 }
 
 function backoffMs(attemptIndex: number): number {
