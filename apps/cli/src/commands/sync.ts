@@ -37,6 +37,7 @@ import { runPush, runPull, runSync, clearLastError } from '../sync/sync-driver.j
 import * as log from '../utils/logger.js';
 
 type InitOptions = { relay?: string };
+type ImportKeyOptions = { relay?: string };
 type ShowKeyOptions = { reveal?: boolean };
 
 export function registerSync(program: Command): void {
@@ -232,7 +233,8 @@ export function registerSync(program: Command): void {
     sync.command('import-key')
         .description('Adopt an existing master key from another device (base64)')
         .argument('<base64>', 'Base64-encoded master key from `lumen sync show-key --reveal`')
-        .action((b64: string) => {
+        .option('--relay <url>', 'Relay URL (required on a fresh device; omit to keep existing)')
+        .action((b64: string, opts: ImportKeyOptions) => {
             try {
                 getDb();
                 const key = Buffer.from(b64.trim(), 'base64');
@@ -250,16 +252,22 @@ export function registerSync(program: Command): void {
                     process.exitCode = 1;
                     return;
                 }
+                const state = getOrInitSyncState();
+                const relayUrl = opts.relay ?? state.relay_url ?? null;
                 setMasterKey(key);
                 const userHash = deriveUserHash(key);
                 const fingerprint = fingerprintMasterKey(key);
                 setRelayConfig({
                     user_hash: userHash,
                     encryption_key_fingerprint: fingerprint,
+                    relay_url: relayUrl,
                 });
                 log.success('Imported master key.');
-                log.table({ user_hash: userHash, fingerprint });
+                log.table({ user_hash: userHash, fingerprint, relay: relayUrl ?? '(unset)' });
                 log.dim('Fingerprint should match the source device.');
+                if (!relayUrl) {
+                    log.warn('No relay configured. Run `lumen sync init --relay <url>` to set one.');
+                }
             } catch (err) {
                 log.error(err instanceof Error ? err.message : String(err));
                 process.exitCode = 1;
