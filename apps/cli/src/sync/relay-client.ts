@@ -7,10 +7,11 @@
  *   DELETE {relayUrl}/v1/journal/{userHash}/{syncId}    — tombstone (Tier 6)
  *
  * Retry policy:
- *   - 5xx: exponential backoff [1s, 2s, 4s, 8s], capped at 60s, max 5 attempts
+ *   - 5xx: max 5 attempts with backoff [1s, 2s, 4s, 8s] between attempts (capped at 60s)
  *   - 429: honor `Retry-After` header (seconds, integer); fall back to backoff
  *   - 4xx (non-429): no retry, throw with response body
  *   - Network errors: same backoff as 5xx
+ *   - The last attempt does not sleep — there's no later attempt to wait for
  *
  * Circuit-break is a higher-level concern handled in `sync-driver.ts`. This
  * module just retries individual requests.
@@ -122,18 +123,21 @@ export async function deleteJournal(
 async function retrying(attempt: () => Promise<Response>, label: string): Promise<Response> {
     let lastErr: Error | null = null;
     for (let i = 0; i < MAX_RETRIES; i++) {
+        const isLastAttempt = i === MAX_RETRIES - 1;
         try {
             const res = await attempt();
             if (res.status >= 200 && res.status < 300) return res;
 
             if (res.status === 429) {
                 lastErr = new Error(`429 ${res.statusText}`);
+                if (isLastAttempt) break;
                 const ra = parseRetryAfter(res.headers.get('retry-after'));
                 await sleep(ra ?? backoffMs(i));
                 continue;
             }
             if (res.status >= 500) {
                 lastErr = new Error(`${res.status} ${res.statusText}`);
+                if (isLastAttempt) break;
                 await sleep(backoffMs(i));
                 continue;
             }
@@ -146,6 +150,7 @@ async function retrying(attempt: () => Promise<Response>, label: string): Promis
         } catch (err) {
             if (isRelayError(err)) throw err;
             lastErr = err instanceof Error ? err : new Error(String(err));
+            if (isLastAttempt) break;
             await sleep(backoffMs(i));
         }
     }

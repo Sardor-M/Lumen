@@ -12,7 +12,13 @@ import { tmpdir } from 'node:os';
 import { setDataDir, resetDataDir } from '../src/utils/paths.js';
 import { getDb, resetDb } from '../src/store/database.js';
 import { appendJournal, countJournal, listUnpushed, listUnapplied } from '../src/sync/journal.js';
-import { getOrInitSyncState, setEnabled, setRelayConfig, setLastError } from '../src/sync/state.js';
+import {
+    getOrInitSyncState,
+    setEnabled,
+    setRelayConfig,
+    setLastError,
+    updateCursor,
+} from '../src/sync/state.js';
 import { setMasterKey, setKeyringBackend, deleteMasterKey } from '../src/sync/keyring.js';
 import {
     runPush,
@@ -263,6 +269,23 @@ describe('runPull', () => {
          * same final page.
          */
         const remote = makeRemoteEntry({ slug: 'terminal-page' });
+        const fetchImpl = fetchOK(() => ({ entries: [remote], next_cursor: null }));
+        await runPull({ fetchImpl });
+        const state = getOrInitSyncState();
+        expect(state.last_pull_cursor).toBe(remote.sync_id);
+        expect(state.last_pull_at).not.toBeNull();
+    });
+
+    it('advances last_pull_cursor on a terminal page even when last_pull_cursor was already set', async () => {
+        /**
+         * Regression: when state.last_pull_cursor was already set from a
+         * prior cycle, the terminal-page case used the stale incoming
+         * cursor (== state.last_pull_cursor) as the candidate for the
+         * update, so the equality guard short-circuited and last_pull_at
+         * stayed stale. Fix: prefer highestSyncId on terminal pages.
+         */
+        updateCursor({ last_pull_cursor: 'old-cursor-from-prior-cycle' });
+        const remote = makeRemoteEntry({ slug: 'fresh-on-terminal' });
         const fetchImpl = fetchOK(() => ({ entries: [remote], next_cursor: null }));
         await runPull({ fetchImpl });
         const state = getOrInitSyncState();

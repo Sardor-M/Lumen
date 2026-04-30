@@ -246,13 +246,10 @@ async function doPull(ctx: Context, opts: DriverOptions, result: SyncResult): Pr
      * we used it as the loop guard. Track entries seen instead.
      */
     let totalProcessed = 0;
-    /**
-     * Highest sync_id seen across all pages this cycle. Used as the
-     * fallback cursor when the relay's terminal page returns
-     * `next_cursor: null` — sync_ids are sortable, so the last entry of
-     * the last page is the new high-water mark.
-     */
+    /** Highest sync_id seen across all pages this cycle. */
     let highestSyncId: string | null = null;
+    /** True iff the relay returned a page with entries and `next_cursor: null`. */
+    let terminalPage = false;
 
     /** Loop until the relay has nothing more (or we hit batchSize cap). */
     while (totalProcessed < batchSize) {
@@ -274,7 +271,10 @@ async function doPull(ctx: Context, opts: DriverOptions, result: SyncResult): Pr
             }
         }
 
-        if (!batch.next_cursor) break;
+        if (!batch.next_cursor) {
+            terminalPage = true;
+            break;
+        }
         /**
          * Cursor must move forward each page. If the relay returns the same
          * cursor twice, treat it as end-of-stream — better than spinning
@@ -285,14 +285,17 @@ async function doPull(ctx: Context, opts: DriverOptions, result: SyncResult): Pr
     }
 
     /**
-     * Resolve the cursor to persist. If the relay paginated, `cursor` holds
-     * the latest server-provided cursor. If the terminal page returned
-     * `next_cursor: null` but had entries, fall back to the highest sync_id
-     * we saw — otherwise `last_pull_at` stays stale and the next cycle
-     * re-fetches the same final page (harmless via insertPulled but
-     * wasteful).
+     * Resolve the cursor to persist:
+     *   - Terminal page (`next_cursor: null` with entries): use the highest
+     *     sync_id we saw. sync_ids are sortable, so the last entry of the
+     *     last page is the new high-water mark — and using the unchanged
+     *     server-side cursor would cause the next cycle to re-fetch the
+     *     same terminal page (insertPulled is idempotent, but wasteful).
+     *   - Mid-stream pagination: use the latest server cursor. Server
+     *     cursors are opaque tokens that may not be sync_ids, and the
+     *     relay may not accept a sync_id as `since`.
      */
-    const newCursor = cursor ?? highestSyncId ?? undefined;
+    const newCursor = terminalPage ? highestSyncId : cursor;
     if (newCursor && newCursor !== state.last_pull_cursor) {
         updateCursor({ last_pull_cursor: newCursor });
     }
