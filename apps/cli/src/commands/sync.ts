@@ -227,7 +227,12 @@ export function registerSync(program: Command): void {
                     return;
                 }
                 log.heading('Master key (base64)');
-                console.log(key.toString('base64'));
+                /**
+                 * Raw write — no log prefix — so the user can pipe or copy
+                 * the key cleanly. CLAUDE.md forbids `console.log`; the log
+                 * helpers all decorate output, which we don't want here.
+                 */
+                process.stdout.write(`${key.toString('base64')}\n`);
                 log.dim(
                     `\nFingerprint: ${fingerprintMasterKey(key)}  (must match on the other device)`,
                 );
@@ -273,7 +278,9 @@ export function registerSync(program: Command): void {
                 log.table({ user_hash: userHash, fingerprint, relay: relayUrl ?? '(unset)' });
                 log.dim('Fingerprint should match the source device.');
                 if (!relayUrl) {
-                    log.warn('No relay configured. Run `lumen sync init --relay <url>` to set one.');
+                    log.warn(
+                        'No relay configured. Run `lumen sync init --relay <url>` to set one.',
+                    );
                 }
             } catch (err) {
                 log.error(err instanceof Error ? err.message : String(err));

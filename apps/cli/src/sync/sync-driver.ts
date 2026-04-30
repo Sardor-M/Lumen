@@ -32,7 +32,13 @@
  */
 
 import { listUnpushed, markPushed, insertPulled } from './journal.js';
-import { getOrInitSyncState, setLastError, updateCursor, setRelayConfig } from './state.js';
+import {
+    getOrInitSyncState,
+    setLastError,
+    setLastPushAt,
+    updateCursor,
+    setRelayConfig,
+} from './state.js';
 import { getMasterKey } from './keyring.js';
 import {
     encryptEnvelope,
@@ -194,7 +200,11 @@ async function doPush(ctx: Context, opts: DriverOptions, result: SyncResult): Pr
     const rejectedSet = new Set(response.rejected.map((r) => r.sync_id));
     const accepted = unpushed.filter((e) => !rejectedSet.has(e.sync_id)).map((e) => e.sync_id);
 
-    if (accepted.length > 0) markPushed(accepted);
+    if (accepted.length > 0) {
+        markPushed(accepted);
+        /** Surface the push timestamp in `sync status`. */
+        setLastPushAt();
+    }
 
     result.pushed = accepted.length;
     result.rejected = response.rejected.length;
@@ -236,6 +246,13 @@ async function doPull(ctx: Context, opts: DriverOptions, result: SyncResult): Pr
      * we used it as the loop guard. Track entries seen instead.
      */
     let totalProcessed = 0;
+    /**
+     * Highest sync_id seen across all pages this cycle. Used as the
+     * fallback cursor when the relay's terminal page returns
+     * `next_cursor: null` — sync_ids are sortable, so the last entry of
+     * the last page is the new high-water mark.
+     */
+    let highestSyncId: string | null = null;
 
     /** Loop until the relay has nothing more (or we hit batchSize cap). */
     while (totalProcessed < batchSize) {
@@ -252,6 +269,9 @@ async function doPull(ctx: Context, opts: DriverOptions, result: SyncResult): Pr
             const inserted = applyPulledEntry(remote, ctx.masterKey, result);
             if (inserted) totalInserted++;
             totalProcessed++;
+            if (highestSyncId === null || remote.sync_id > highestSyncId) {
+                highestSyncId = remote.sync_id;
+            }
         }
 
         if (!batch.next_cursor) break;
@@ -264,8 +284,17 @@ async function doPull(ctx: Context, opts: DriverOptions, result: SyncResult): Pr
         cursor = batch.next_cursor;
     }
 
-    if (cursor && cursor !== state.last_pull_cursor) {
-        updateCursor({ last_pull_cursor: cursor });
+    /**
+     * Resolve the cursor to persist. If the relay paginated, `cursor` holds
+     * the latest server-provided cursor. If the terminal page returned
+     * `next_cursor: null` but had entries, fall back to the highest sync_id
+     * we saw — otherwise `last_pull_at` stays stale and the next cycle
+     * re-fetches the same final page (harmless via insertPulled but
+     * wasteful).
+     */
+    const newCursor = cursor ?? highestSyncId ?? undefined;
+    if (newCursor && newCursor !== state.last_pull_cursor) {
+        updateCursor({ last_pull_cursor: newCursor });
     }
     result.pulled = totalInserted;
 }

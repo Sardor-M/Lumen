@@ -99,6 +99,25 @@ describe('runPush', () => {
         expect(listUnpushed()).toHaveLength(0);
     });
 
+    it('stamps sync_state.last_push_at after a successful push', async () => {
+        seedJournalEntry();
+        const before = getOrInitSyncState();
+        expect(before.last_push_at).toBeNull();
+
+        const fetchImpl = fetchOK(() => ({ accepted: 1, rejected: [] }));
+        await runPush({ fetchImpl });
+
+        const after = getOrInitSyncState();
+        expect(after.last_push_at).not.toBeNull();
+    });
+
+    it('does not stamp last_push_at when there is nothing to push', async () => {
+        const fetchImpl = fetchOK(() => ({ accepted: 0, rejected: [] }));
+        await runPush({ fetchImpl });
+        const state = getOrInitSyncState();
+        expect(state.last_push_at).toBeNull();
+    });
+
     it('decrypts the envelope back to the original journal row', async () => {
         seedJournalEntry();
         let envelope = null as unknown as { v: 1; e: string; n: string; c: string };
@@ -234,6 +253,20 @@ describe('runPull', () => {
         await runPull({ fetchImpl });
         const state = getOrInitSyncState();
         expect(state.last_pull_cursor).toBe('cursor-after-batch');
+        expect(state.last_pull_at).not.toBeNull();
+    });
+
+    it('advances last_pull_cursor when terminal page returns next_cursor: null with entries', async () => {
+        /**
+         * Regression: previously the loop broke before assigning `cursor`,
+         * leaving last_pull_at stale and the next pull re-fetching the
+         * same final page.
+         */
+        const remote = makeRemoteEntry({ slug: 'terminal-page' });
+        const fetchImpl = fetchOK(() => ({ entries: [remote], next_cursor: null }));
+        await runPull({ fetchImpl });
+        const state = getOrInitSyncState();
+        expect(state.last_pull_cursor).toBe(remote.sync_id);
         expect(state.last_pull_at).not.toBeNull();
     });
 
