@@ -9,11 +9,22 @@ export {
     appendJournal,
     listUnpushed,
     listUnapplied,
+    insertPulled,
     markPushed,
     markApplied,
     countJournal,
     countUnpushed,
 } from './journal.js';
+
+export {
+    setMasterKey,
+    getMasterKey,
+    deleteMasterKey,
+    hasMasterKey,
+    setKeyringBackend,
+    getKeyringBackend,
+} from './keyring.js';
+export type { KeyringBackend } from './keyring.js';
 
 export {
     getOrInitSyncState,
