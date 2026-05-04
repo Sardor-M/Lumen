@@ -363,7 +363,7 @@ describe('applyTruthUpdate (LWW)', () => {
         expect(rows[0].superseded_by).toBeNull();
     });
 
-    it('skipped: concept does not exist locally → no write anywhere, returns "skipped"', () => {
+    it('missing concept throws so applyPending retries on next cycle', () => {
         const entry = seedPulled({
             op: 'truth_update',
             entity_id: 'absent',
@@ -373,8 +373,7 @@ describe('applyTruthUpdate (LWW)', () => {
                 updated_at: '2099-01-01T00:00:00.000Z',
             },
         });
-        const result = applyTruthUpdate(entry);
-        expect(result.lww).toBe('skipped');
+        expect(() => applyTruthUpdate(entry)).toThrow(/concept not found for slug "absent"/);
         expect(getConcept('absent')).toBeNull();
     });
 

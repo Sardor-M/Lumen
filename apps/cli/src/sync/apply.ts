@@ -266,12 +266,11 @@ export function applyFeedback(entry: JournalEntry): void {
  *   - "lost" path: existence check on (slug, updated_at, device_id, truth)
  *     before writing history (this composite is unique enough at our scale)
  *
- * Skips entirely when the concept doesn't exist locally — this is OK because
- * the concept_create for the same slug arrives in the same pull batch and
- * (per sync_id ordering) will land first; if it doesn't, the truth_update
- * fails this round and retries on the next applyPending call.
+ * Throws when the concept doesn't exist locally — the entry stays
+ * `applied_at = NULL` so the next `applyPending` call retries it once the
+ * prerequisite `concept_create` has landed.
  */
-export function applyTruthUpdate(entry: JournalEntry): { lww: 'won' | 'lost' | 'skipped' } {
+export function applyTruthUpdate(entry: JournalEntry): { lww: 'won' | 'lost' } {
     const p = entry.payload as TruthUpdatePayload;
     const slug = p.concept_slug;
     const db = getDb();
@@ -279,7 +278,7 @@ export function applyTruthUpdate(entry: JournalEntry): { lww: 'won' | 'lost' | '
     const existing = db
         .prepare('SELECT compiled_truth, updated_at FROM concepts WHERE slug = ?')
         .get(slug) as { compiled_truth: string | null; updated_at: string } | undefined;
-    if (!existing) return { lww: 'skipped' };
+    if (!existing) throw new Error(`truth_update: concept not found for slug "${slug}" — will retry`);
 
     /**
      * Idempotency: after a successful won-path apply, concepts.updated_at
