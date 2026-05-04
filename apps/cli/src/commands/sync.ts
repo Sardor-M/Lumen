@@ -6,14 +6,12 @@
  *   enable / disable       flip the runtime gate
  *   push                   one-shot push of unpushed journal entries
  *   pull                   one-shot pull from cursor
+ *   apply                  drain pulled-but-unapplied entries into the local store
+ *   run                    push then pull then apply (the standard cycle)
  *   status                 journal lag, last sync times, fingerprint
  *   reset-error            clear last_error after a circuit-break
  *   show-key [--reveal]    print the master key (base64) for sharing to a 2nd device
  *   import-key <base64>    accept an existing master key (2nd-device flow)
- *
- * Tier 5c lands the wire-level loop. Pulled entries sit in the journal with
- * `pulled_at` set; **Tier 5e** translates them into actual store mutations.
- * Until 5e ships, a successful pull is observable only via `lumen sync status`.
  */
 
 import type { Command } from 'commander';
@@ -33,7 +31,7 @@ import {
     fingerprintMasterKey,
     MASTER_KEY_BYTES,
 } from '../sync/crypto.js';
-import { runPush, runPull, runSync, clearLastError } from '../sync/sync-driver.js';
+import { runPush, runPull, runSync, runApply, clearLastError } from '../sync/sync-driver.js';
 import * as log from '../utils/logger.js';
 
 type InitOptions = { relay?: string };
@@ -154,12 +152,25 @@ export function registerSync(program: Command): void {
         });
 
     sync.command('run')
-        .description('Push then pull in one cycle (the standard sync loop)')
+        .description('Push, pull, then apply in one cycle (the standard sync loop)')
         .action(async () => {
             try {
                 getDb();
                 const result = await runSync();
                 logResult('sync', result);
+            } catch (err) {
+                log.error(err instanceof Error ? err.message : String(err));
+                process.exitCode = 1;
+            }
+        });
+
+    sync.command('apply')
+        .description('Apply pulled-but-unapplied journal entries to the local store')
+        .action(() => {
+            try {
+                getDb();
+                const result = runApply();
+                logResult('apply', result);
             } catch (err) {
                 log.error(err instanceof Error ? err.message : String(err));
                 process.exitCode = 1;
@@ -305,12 +316,21 @@ export function registerSync(program: Command): void {
 
 function logResult(
     label: string,
-    result: { pushed: number; pulled: number; rejected: number; errors: string[] },
+    result: {
+        pushed: number;
+        pulled: number;
+        applied?: number;
+        apply_failed?: number;
+        rejected: number;
+        errors: string[];
+    },
 ): void {
     log.heading(`${label} result`);
     log.table({
         pushed: result.pushed,
         pulled: result.pulled,
+        applied: result.applied ?? 0,
+        apply_failed: result.apply_failed ?? 0,
         rejected: result.rejected,
         errors: result.errors.length,
     });
