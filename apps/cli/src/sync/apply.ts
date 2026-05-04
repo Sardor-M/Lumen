@@ -326,7 +326,7 @@ export function applyTruthUpdate(entry: JournalEntry): { lww: 'won' | 'lost' } {
  */
 export function applyRetire(entry: JournalEntry): void {
     const p = entry.payload as RetirePayload;
-    getDb()
+    const info = getDb()
         .prepare(
             `UPDATE concepts
              SET retired_at = COALESCE(retired_at, ?),
@@ -334,4 +334,7 @@ export function applyRetire(entry: JournalEntry): void {
              WHERE slug = ?`,
         )
         .run(entry.created_at, p.reason, p.concept_slug);
+    if (info.changes === 0) {
+        throw new Error(`retire: concept not found for slug "${p.concept_slug}" — will retry`);
+    }
 }

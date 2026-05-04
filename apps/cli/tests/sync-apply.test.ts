@@ -489,13 +489,13 @@ describe('applyRetire', () => {
         expect(c?.retire_reason).toBe('first reason');
     });
 
-    it('silent no-op when the concept does not exist locally', () => {
+    it('missing concept throws so applyPending retries on next cycle', () => {
         const entry = seedPulled({
             op: 'retire',
             entity_id: 'phantom',
             payload: { concept_slug: 'phantom', reason: 'nope' },
         });
-        expect(() => applyRetire(entry)).not.toThrow();
+        expect(() => applyRetire(entry)).toThrow(/concept not found for slug "phantom"/);
     });
 });
 
