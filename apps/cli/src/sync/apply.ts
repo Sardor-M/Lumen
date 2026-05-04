@@ -173,6 +173,14 @@ export function applyTrajectory(entry: JournalEntry): void {
     const metadata = p.metadata as unknown as TrajectoryMetadata;
     const metadataJson = JSON.stringify(metadata);
 
+    /**
+     * insertSource doesn't OR IGNORE — re-applying would throw on PK conflict.
+     * Explicit existence check + early return makes the path idempotent without
+     * widening insertSource's contract for everyone else.
+     */
+    const exists = getDb().prepare('SELECT 1 AS found FROM sources WHERE id = ?').get(p.source_id);
+    if (exists) return;
+
     const wordCount = metadata.steps.reduce(
         (sum, s) => sum + s.result_summary.split(/\s+/).filter(Boolean).length,
         0,
@@ -273,16 +281,22 @@ export function applyTruthUpdate(entry: JournalEntry): { lww: 'won' | 'lost' | '
         .get(slug) as { compiled_truth: string | null; updated_at: string } | undefined;
     if (!existing) return { lww: 'skipped' };
 
+    /**
+     * Idempotency: after a successful won-path apply, concepts.updated_at
+     * equals p.updated_at, so the `>` comparison below would flip the next
+     * call to the loss path and add a spurious history row. Detect "already
+     * applied as winner" via the superseded_by trail and return early.
+     */
+    const alreadyWon = db
+        .prepare('SELECT 1 AS found FROM concept_truth_history WHERE superseded_by = ?')
+        .get(entry.sync_id);
+    if (alreadyWon) return { lww: 'won' };
+
     if (p.updated_at > existing.updated_at) {
-        const already = db
-            .prepare('SELECT 1 FROM concept_truth_history WHERE superseded_by = ?')
-            .get(entry.sync_id);
-        if (!already) {
-            db.prepare(
-                `INSERT INTO concept_truth_history (slug, truth, updated_at, device_id, superseded_by)
-                 VALUES (?, ?, ?, ?, ?)`,
-            ).run(slug, existing.compiled_truth ?? '', existing.updated_at, 'local', entry.sync_id);
-        }
+        db.prepare(
+            `INSERT INTO concept_truth_history (slug, truth, updated_at, device_id, superseded_by)
+             VALUES (?, ?, ?, ?, ?)`,
+        ).run(slug, existing.compiled_truth ?? '', existing.updated_at, 'local', entry.sync_id);
         db.prepare(
             'UPDATE concepts SET compiled_truth = ?, summary = ?, updated_at = ? WHERE slug = ?',
         ).run(p.new_truth, p.new_truth, p.updated_at, slug);
