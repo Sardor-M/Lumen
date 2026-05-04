@@ -6,6 +6,12 @@
 
 export type Bindings = {
     DB: D1Database;
+    /**
+     * KV namespace for rate-limit counters. Optional — the Worker treats a
+     * missing binding as "no rate limiting" so self-hosters who don't want
+     * limits can leave it out entirely.
+     */
+    RATE_LIMIT?: KVNamespace;
     /** Per-envelope size cap, bytes. From wrangler.toml [vars]. */
     MAX_ENVELOPE_BYTES?: string;
     /** Max entries accepted per POST batch. From wrangler.toml [vars]. */
@@ -14,6 +20,11 @@ export type Bindings = {
     MAX_PULL_LIMIT?: string;
     /** Default `limit` when query param omitted. From wrangler.toml [vars]. */
     DEFAULT_PULL_LIMIT?: string;
+    /** Rate-limit knobs (set to "0" to disable any one). From wrangler.toml [vars]. */
+    RATE_LIMIT_PUSH_REQUESTS_PER_MINUTE?: string;
+    RATE_LIMIT_PULL_REQUESTS_PER_MINUTE?: string;
+    RATE_LIMIT_PUSH_ENTRIES_PER_HOUR?: string;
+    RATE_LIMIT_BYTES_PER_DAY?: string;
 };
 
 /**

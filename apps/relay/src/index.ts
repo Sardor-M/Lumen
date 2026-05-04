@@ -18,6 +18,7 @@
  */
 
 import { Hono } from 'hono';
+import { checkAndIncrement } from './rate-limit.js';
 import type { Bindings, EncryptionEnvelope, PullEntry, PushBatch, PushRejection } from './types.js';
 import {
     badRequest,
@@ -26,13 +27,24 @@ import {
     isValidSyncId,
     isValidUserHash,
     payloadTooLarge,
+    rateLimited,
     readNumberVar,
+    readRateLimit,
 } from './validation.js';
 
 const DEFAULT_MAX_ENVELOPE_BYTES = 262_144;
 const DEFAULT_MAX_BATCH_ENTRIES = 100;
 const DEFAULT_MAX_PULL_LIMIT = 500;
 const DEFAULT_PULL_LIMIT = 100;
+/**
+ * Default rate limits per user_hash. Match SYNC-PROTOCOL.md §5.4.
+ * Override via the RATE_LIMIT_* env vars in wrangler.toml — set any to "0"
+ * to disable just that limit.
+ */
+const DEFAULT_RL_PUSH_REQ_PER_MIN = 50;
+const DEFAULT_RL_PULL_REQ_PER_MIN = 100;
+const DEFAULT_RL_PUSH_ENTRIES_PER_HOUR = 1000;
+const DEFAULT_RL_BYTES_PER_DAY = 100 * 1024 * 1024;
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -47,6 +59,34 @@ app.post('/v1/journal/:user_hash', async (c) => {
 
     const maxEnvelopeBytes = readNumberVar(c.env.MAX_ENVELOPE_BYTES, DEFAULT_MAX_ENVELOPE_BYTES);
     const maxBatchEntries = readNumberVar(c.env.MAX_BATCH_ENTRIES, DEFAULT_MAX_BATCH_ENTRIES);
+
+    /** Per-request rate limit, before any work — cheapest gate. */
+    const reqLimit = readRateLimit(
+        c.env.RATE_LIMIT_PUSH_REQUESTS_PER_MINUTE,
+        DEFAULT_RL_PUSH_REQ_PER_MIN,
+    );
+    const reqRl = await checkAndIncrement(c.env.RATE_LIMIT, userHash, 'push_req', 1, reqLimit, 60);
+    if (!reqRl.ok) return rateLimited(c, reqRl.kind, reqRl.retry_after);
+
+    /**
+     * Daily byte budget — best-effort via Content-Length. The header isn't
+     * authoritative (clients can lie), but the per-envelope and per-batch
+     * caps below bound actual ingest, so this is just a coarse guard against
+     * an aggressive sender.
+     */
+    const contentLength = Number.parseInt(c.req.header('content-length') ?? '0', 10) || 0;
+    if (contentLength > 0) {
+        const bytesLimit = readRateLimit(c.env.RATE_LIMIT_BYTES_PER_DAY, DEFAULT_RL_BYTES_PER_DAY);
+        const bytesRl = await checkAndIncrement(
+            c.env.RATE_LIMIT,
+            userHash,
+            'bytes',
+            contentLength,
+            bytesLimit,
+            86_400,
+        );
+        if (!bytesRl.ok) return rateLimited(c, bytesRl.kind, bytesRl.retry_after);
+    }
 
     let batch: PushBatch;
     try {
@@ -69,6 +109,25 @@ app.post('/v1/journal/:user_hash', async (c) => {
     if (batch.entries.length > maxBatchEntries) {
         return payloadTooLarge(c, `entries exceeds max batch size (${maxBatchEntries})`);
     }
+
+    /**
+     * Per-hour entry budget — count entries (not requests). A misbehaving
+     * client could spam tiny batches under push_req but still flood the
+     * journal; this limit is the actual write-rate ceiling.
+     */
+    const entriesLimit = readRateLimit(
+        c.env.RATE_LIMIT_PUSH_ENTRIES_PER_HOUR,
+        DEFAULT_RL_PUSH_ENTRIES_PER_HOUR,
+    );
+    const entriesRl = await checkAndIncrement(
+        c.env.RATE_LIMIT,
+        userHash,
+        'push_entries',
+        batch.entries.length,
+        entriesLimit,
+        3600,
+    );
+    if (!entriesRl.ok) return rateLimited(c, entriesRl.kind, entriesRl.retry_after);
 
     const rejected: PushRejection[] = [];
     const insertable: Array<{ sync_id: string; envelope: Uint8Array; scope_tag: string }> = [];
@@ -133,6 +192,20 @@ app.get('/v1/journal/:user_hash', async (c) => {
     if (!isValidUserHash(userHash)) {
         return badRequest(c, 'user_hash must be 16 lowercase hex characters');
     }
+
+    const pullReqLimit = readRateLimit(
+        c.env.RATE_LIMIT_PULL_REQUESTS_PER_MINUTE,
+        DEFAULT_RL_PULL_REQ_PER_MIN,
+    );
+    const pullRl = await checkAndIncrement(
+        c.env.RATE_LIMIT,
+        userHash,
+        'pull_req',
+        1,
+        pullReqLimit,
+        60,
+    );
+    if (!pullRl.ok) return rateLimited(c, pullRl.kind, pullRl.retry_after);
 
     const maxPullLimit = readNumberVar(c.env.MAX_PULL_LIMIT, DEFAULT_MAX_PULL_LIMIT);
     const defaultPullLimit = readNumberVar(c.env.DEFAULT_PULL_LIMIT, DEFAULT_PULL_LIMIT);

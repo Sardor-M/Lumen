@@ -88,6 +88,14 @@ export function problem(c: Context, problem: ProblemDetails): Response {
     return c.body(JSON.stringify(problem), problem.status as 400 | 404 | 413 | 429, headers);
 }
 
+/** Map an env-var rate limit (string from wrangler.toml [vars]) to a number. */
+export function readRateLimit(value: string | undefined, fallback: number): number {
+    if (value === undefined) return fallback;
+    const n = Number.parseInt(value, 10);
+    /** Negative or non-numeric values are treated as "disabled" (return 0). */
+    return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
 export function badRequest(c: Context, detail: string): Response {
     return problem(c, {
         type: 'about:blank',
@@ -103,5 +111,15 @@ export function payloadTooLarge(c: Context, detail: string): Response {
         title: 'Payload Too Large',
         status: 413,
         detail,
+    });
+}
+
+export function rateLimited(c: Context, kind: string, retryAfter: number): Response {
+    return problem(c, {
+        type: 'rate_limit_exceeded',
+        title: 'Too Many Requests',
+        status: 429,
+        detail: `${kind} rate limit exceeded; retry after ${retryAfter}s`,
+        retry_after: retryAfter,
     });
 }
