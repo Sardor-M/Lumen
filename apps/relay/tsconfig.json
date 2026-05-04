@@ -4,7 +4,7 @@
         "module": "ESNext",
         "moduleResolution": "bundler",
         "lib": ["ES2022"],
-        "types": ["@cloudflare/workers-types"],
+        "types": ["@cloudflare/workers-types", "@cloudflare/vitest-pool-workers"],
         "esModuleInterop": true,
         "strict": true,
         "noEmit": true,
@@ -17,6 +17,6 @@
             "@/*": ["./src/*"]
         }
     },
-    "include": ["src/**/*", "test/**/*"],
+    "include": ["src/**/*", "test/**/*", "vitest.config.ts"],
     "exclude": ["node_modules"]
 }

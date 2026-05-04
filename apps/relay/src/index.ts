@@ -130,7 +130,7 @@ app.post('/v1/journal/:user_hash', async (c) => {
     if (!entriesRl.ok) return rateLimited(c, entriesRl.kind, entriesRl.retry_after);
 
     const rejected: PushRejection[] = [];
-    const insertable: Array<{ sync_id: string; envelope: Uint8Array; scope_tag: string }> = [];
+    const insertable: Array<{ sync_id: string; envelope: ArrayBuffer; scope_tag: string }> = [];
 
     for (const raw of batch.entries) {
         if (!isValidPushEntry(raw)) {
@@ -284,23 +284,59 @@ app.delete('/v1/journal/:user_hash/:sync_id', async (c) => {
 /** Catch-all 404 with problem+json so misrouted requests show the problem. */
 app.notFound((c) => badRequest(c, `no route for ${c.req.method} ${new URL(c.req.url).pathname}`));
 
+/**
+ * Last-resort error handler. Anything that escapes a route surfaces as a
+ * problem+json 500 with the error message — the client treats 5xx as
+ * retryable, so noisy errors here will trigger backoff rather than a hard
+ * fail. Logged via console so wrangler tail surfaces them.
+ */
+app.onError((err, c) => {
+    console.error('relay error:', err);
+    return c.body(
+        JSON.stringify({
+            type: 'about:blank',
+            title: 'Internal Server Error',
+            status: 500,
+            detail: err instanceof Error ? err.message : String(err),
+        }),
+        500,
+        { 'content-type': 'application/problem+json' },
+    );
+});
+
 export default app;
 
 /** ─── Helpers ─── */
 
-function encodeEnvelope(envelope: EncryptionEnvelope): Uint8Array {
-    return new TextEncoder().encode(JSON.stringify(envelope));
+/**
+ * D1 binds BLOB columns from `ArrayBuffer` reliably; `Uint8Array` is not in
+ * the supported binding types per Cloudflare docs (string | number | null |
+ * ArrayBuffer). We slice into a fresh ArrayBuffer to detach from any
+ * underlying SharedArrayBuffer.
+ */
+function encodeEnvelope(envelope: EncryptionEnvelope): ArrayBuffer {
+    const u8 = new TextEncoder().encode(JSON.stringify(envelope));
+    return u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength) as ArrayBuffer;
 }
 
+/**
+ * D1 returns BLOB as `ArrayBuffer` (workerd) or `Uint8Array` (some test
+ * envs) — handle both. Anything else is a corrupted row and the 500 error
+ * handler above will surface it.
+ */
 function decodeEnvelope(blob: unknown): EncryptionEnvelope {
-    const bytes =
-        blob instanceof Uint8Array
-            ? blob
-            : blob instanceof ArrayBuffer
-              ? new Uint8Array(blob)
-              : new Uint8Array(0);
-    const json = new TextDecoder().decode(bytes);
-    return JSON.parse(json) as EncryptionEnvelope;
+    let bytes: Uint8Array;
+    if (blob instanceof Uint8Array) {
+        bytes = blob;
+    } else if (blob instanceof ArrayBuffer) {
+        bytes = new Uint8Array(blob);
+    } else if (Array.isArray(blob)) {
+        /** Some D1 paths return BLOBs as plain number[] — handle that too. */
+        bytes = new Uint8Array(blob as number[]);
+    } else {
+        throw new Error(`unexpected envelope storage type: ${typeof blob}`);
+    }
+    return JSON.parse(new TextDecoder().decode(bytes)) as EncryptionEnvelope;
 }
 
 /** Diagnose why a malformed PushEntry was rejected (best-effort). */
