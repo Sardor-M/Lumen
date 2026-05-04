@@ -127,7 +127,7 @@ export function captureTrajectory(input: CaptureTrajectoryInput): CaptureResult 
             upsertScope({ kind: scope.kind, key: scope.key });
         }
 
-        insertChunks(buildChunks(source_id, metadata));
+        insertChunks(buildTrajectoryChunks(source_id, metadata));
 
         appendJournal({
             op: 'trajectory',
@@ -154,8 +154,12 @@ export function captureTrajectory(input: CaptureTrajectoryInput): CaptureResult 
 /**
  * One summary chunk at position 0 (task + outcome + agent for top-level matches),
  * plus one chunk per step for fine-grained step-level retrieval.
+ *
+ * Exported so Tier 5e's `applyTrajectory` can replay the same chunk shape on
+ * the destination device — the journal carries metadata, not chunks, so the
+ * receiver rebuilds them deterministically.
  */
-function buildChunks(source_id: string, metadata: TrajectoryMetadata): Chunk[] {
+export function buildTrajectoryChunks(source_id: string, metadata: TrajectoryMetadata): Chunk[] {
     const chunks: Chunk[] = [];
 
     const summary =
