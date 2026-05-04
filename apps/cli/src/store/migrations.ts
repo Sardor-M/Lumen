@@ -262,6 +262,39 @@ const migrations: Record<number, Migration> = {
             CREATE INDEX IF NOT EXISTS idx_journal_applied ON sync_journal(applied_at);
         `);
     },
+
+    /**
+     * v16 — apply rules audit. Adds:
+     *   - `concept_truth_history` for the last-write-wins loser of `truth_update`
+     *     applies. The winner overwrites `concepts.compiled_truth`; the loser
+     *     lands here with `superseded_by` pointing at the winning sync_id so
+     *     re-applying the same loser is idempotent (existence check).
+     *   - `concept_feedback.sync_id` so an applied feedback row can be detected
+     *     and skipped on re-apply. The unique index is *partial* (only when
+     *     sync_id IS NOT NULL) so rows recorded locally before 5e — which have
+     *     no sync_id — don't trip the constraint.
+     */
+    16: (db) => {
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS concept_truth_history (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                slug          TEXT NOT NULL REFERENCES concepts(slug) ON DELETE CASCADE,
+                truth         TEXT NOT NULL,
+                updated_at    TEXT NOT NULL,
+                device_id     TEXT NOT NULL,
+                superseded_by TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_truth_history_slug ON concept_truth_history(slug);
+            CREATE INDEX IF NOT EXISTS idx_truth_history_superseded
+                ON concept_truth_history(superseded_by) WHERE superseded_by IS NOT NULL;
+
+            ALTER TABLE concept_feedback ADD COLUMN sync_id TEXT;
+
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_feedback_sync_id
+                ON concept_feedback(sync_id) WHERE sync_id IS NOT NULL;
+        `);
+    },
 };
 
 export function runMigrations(

@@ -13,8 +13,9 @@ import type Database from 'better-sqlite3';
  * v13 — exploration-cost telemetry (tokens_spent, skill_hit, exploration_depth, scope_kind, scope_key on query_log)
  * v14 — trajectory review pass (session_review table — records per-session LLM extraction outcomes)
  * v15 — sync journal foundation (sync_state singleton + sync_journal append-only log)
+ * v16 — apply rules audit (concept_truth_history table for LWW losers + concept_feedback.sync_id for idempotent re-apply)
  */
-const CURRENT_VERSION = 15;
+const CURRENT_VERSION = 16;
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS sources (
