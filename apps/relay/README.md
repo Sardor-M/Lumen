@@ -158,6 +158,7 @@ What it **can** do (honest limitations):
 
 - Censor / drop traffic for a `user_hash` (DoS — the only meaningful attack vector).
 - Correlate user activity to IP if not used over Tor / VPN (out of scope; users who need anonymity should self-host behind Tor or a VPN).
+- **Soft rate limits under concurrency** — `checkAndIncrement` (`src/rate-limit.ts`) performs a KV read then a separate KV write with no atomic compare-and-swap. Two Worker invocations that overlap before either write completes will both read the same counter value, both pass the guard, and both increment — so a user can exceed any limit by up to *N − 1* where *N* is their concurrency. The `bytes` counter is the most sensitive: a client sending several large batches simultaneously can overshoot the daily byte budget without triggering a single 429. This is an accepted trade-off for v1 simplicity. Operators who need strict enforcement should migrate the counters to a **Cloudflare Durable Object**, which provides serialized access and true atomic updates.
 
 If the data on the relay is leaked, an attacker sees a pile of opaque ciphertexts indexed by random-looking 16-character hashes. Without `Kx`, that's all they see.
 
