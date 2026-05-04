@@ -101,14 +101,15 @@ describe('GET /v1/journal/:user_hash', () => {
     });
 
     it('paginates: limit caps results, next_cursor advances', async () => {
+        const USER_HASH_PAGINATION = 'cccccccccccccccc';
         const entries = Array.from({ length: 5 }, () => makeEntry({ scopeTag: SCOPE_A }));
-        await postBatch(USER_HASH, entries);
+        await postBatch(USER_HASH_PAGINATION, entries);
 
-        const page1 = await get(USER_HASH, { limit: 2 });
+        const page1 = await get(USER_HASH_PAGINATION, { limit: 2 });
         expect(page1.body.entries).toHaveLength(2);
         expect(page1.body.next_cursor).toBe(page1.body.entries[1].sync_id);
 
-        const page2 = await get(USER_HASH, {
+        const page2 = await get(USER_HASH_PAGINATION, {
             limit: 2,
             since: page1.body.next_cursor ?? undefined,
         });
@@ -116,7 +117,7 @@ describe('GET /v1/journal/:user_hash', () => {
         expect(page2.body.entries[0].sync_id > (page1.body.next_cursor ?? '')).toBe(true);
         expect(page2.body.next_cursor).toBe(page2.body.entries[1].sync_id);
 
-        const page3 = await get(USER_HASH, {
+        const page3 = await get(USER_HASH_PAGINATION, {
             limit: 2,
             since: page2.body.next_cursor ?? undefined,
         });
