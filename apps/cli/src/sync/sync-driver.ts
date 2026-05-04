@@ -56,12 +56,21 @@ import {
     type PullEntry,
 } from './relay-client.js';
 import { listScopes } from '../store/scopes.js';
+import { applyPending, type ApplyOptions } from './apply.js';
 import type { JournalEntry, JournalOp } from './types.js';
 import type { ScopeKind } from '../types/index.js';
 
 export type SyncResult = {
     pushed: number;
     pulled: number;
+    /**
+     * Tier 5e: number of pulled entries successfully applied to the local
+     * store this cycle. Always 0 from `runPush`/`runPull` standalone — only
+     * `runApply` and `runSync` (which calls apply after pull) advance it.
+     */
+    applied: number;
+    /** Tier 5e: number of pulled entries whose per-op apply threw. They stay applied_at = NULL for retry. */
+    apply_failed: number;
     rejected: number;
     errors: string[];
 };
@@ -116,11 +125,44 @@ export async function runSync(opts: DriverOptions = {}): Promise<SyncResult> {
     try {
         await doPush(ctx, opts, result);
         await doPull(ctx, opts, result);
+        /**
+         * Apply runs after pull so freshly-pulled entries land in the local
+         * store this cycle. Apply doesn't touch the network — failures here
+         * (e.g. a feedback whose concept_create hasn't arrived yet) don't
+         * trip the circuit-breaker; they're recorded in `apply_failed` and
+         * the next runSync cycle retries them.
+         */
+        runApplyInPlace({ limit: opts.batchSize }, result);
         onSuccess();
     } catch (err) {
         onFailure(err, result);
     }
     return result;
+}
+
+/**
+ * Drain the pending-apply backlog without touching the network. Useful when
+ * a previous pull succeeded but apply failed (e.g. an out-of-order entry
+ * waited on its concept_create), or for the standalone `lumen sync apply`
+ * CLI subcommand.
+ *
+ * Skips the loadContext circuit-breaker preflight because apply is purely
+ * local — it doesn't make sense for a network outage to gate local store
+ * mutations on entries we already pulled successfully.
+ */
+export function runApply(opts: ApplyOptions = {}): SyncResult {
+    const result = emptyResult();
+    runApplyInPlace(opts, result);
+    return result;
+}
+
+function runApplyInPlace(opts: ApplyOptions, result: SyncResult): void {
+    const apply = applyPending(opts);
+    result.applied = apply.applied;
+    result.apply_failed = apply.failed.length;
+    for (const f of apply.failed) {
+        result.errors.push(`apply ${f.op} ${f.sync_id}: ${f.reason}`);
+    }
 }
 
 /** Reset the circuit breaker after the user has confirmed the relay is reachable. */
@@ -387,5 +429,5 @@ function onFailure(err: unknown, result: SyncResult): void {
 }
 
 function emptyResult(): SyncResult {
-    return { pushed: 0, pulled: 0, rejected: 0, errors: [] };
+    return { pushed: 0, pulled: 0, applied: 0, apply_failed: 0, rejected: 0, errors: [] };
 }
