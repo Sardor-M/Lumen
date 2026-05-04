@@ -378,6 +378,62 @@ describe('applyTruthUpdate (LWW)', () => {
         expect(getConcept('absent')).toBeNull();
     });
 
+    it('idempotent (won) after a SECOND truth_update overwrites the concept', () => {
+        /**
+         * Reviewer scenario: X applies as winner, Y later applies as winner
+         * with a higher updated_at. Re-applying X must still recognize
+         * "already won" — the superseded_by trail from X's original win
+         * persists in concept_truth_history because rows are append-only.
+         */
+        seedConcept('chain', 'truth-0');
+
+        const x = seedPulled({
+            sync_id: makeSyncId(1),
+            op: 'truth_update',
+            entity_id: 'chain',
+            payload: {
+                concept_slug: 'chain',
+                new_truth: 'truth-X',
+                updated_at: '2099-01-01T00:00:00.000Z',
+            },
+        });
+        const xResult = applyTruthUpdate(x);
+        expect(xResult.lww).toBe('won');
+
+        const y = seedPulled({
+            sync_id: makeSyncId(2),
+            op: 'truth_update',
+            entity_id: 'chain',
+            payload: {
+                concept_slug: 'chain',
+                new_truth: 'truth-Y',
+                updated_at: '2099-06-01T00:00:00.000Z',
+            },
+        });
+        const yResult = applyTruthUpdate(y);
+        expect(yResult.lww).toBe('won');
+
+        /** Re-apply X — concept now has Y's truth and a higher updated_at. */
+        const xRedo = applyTruthUpdate(x);
+        expect(xRedo.lww).toBe('won');
+
+        /**
+         * History should have exactly two rows: truth-0 (X's loser) +
+         * truth-X (Y's loser). No spurious row from the X re-apply.
+         */
+        const rows = getDb()
+            .prepare(
+                'SELECT truth, superseded_by FROM concept_truth_history WHERE slug = ? ORDER BY id ASC',
+            )
+            .all('chain') as Array<{ truth: string; superseded_by: string | null }>;
+        expect(rows).toHaveLength(2);
+        expect(rows[0].truth).toBe('truth-0');
+        expect(rows[0].superseded_by).toBe(x.sync_id);
+        expect(rows[1].truth).toBe('truth-X');
+        expect(rows[1].superseded_by).toBe(y.sync_id);
+        expect(getConcept('chain')?.compiled_truth).toBe('truth-Y');
+    });
+
     it('idempotent (won): re-applying same entry does not write a duplicate history row', () => {
         seedConcept('idem-truth', 'old');
         const entry = seedPulled({
