@@ -1,0 +1,43 @@
+{
+    "name": "@lumen/relay",
+    "version": "0.1.0",
+    "description": "Reference Cloudflare Worker relay for Lumen sync — opaque, zero-knowledge journal storage backed by D1",
+    "private": true,
+    "type": "module",
+    "main": "src/index.ts",
+    "scripts": {
+        "dev": "wrangler dev",
+        "build": "tsc --noEmit",
+        "deploy": "wrangler deploy",
+        "lint": "eslint src/ test/ && tsc --noEmit",
+        "format": "prettier --write src/ test/",
+        "format:check": "prettier --check src/ test/",
+        "test": "vitest run",
+        "test:watch": "vitest",
+        "migrate:local": "wrangler d1 migrations apply lumen-relay --local",
+        "migrate:remote": "wrangler d1 migrations apply lumen-relay --remote"
+    },
+    "keywords": [
+        "lumen",
+        "sync",
+        "relay",
+        "cloudflare",
+        "worker",
+        "zero-knowledge"
+    ],
+    "license": "MIT",
+    "dependencies": {
+        "hono": "^4.6.0"
+    },
+    "devDependencies": {
+        "@cloudflare/vitest-pool-workers": "^0.5.0",
+        "@cloudflare/workers-types": "^4.20250101.0",
+        "@typescript-eslint/eslint-plugin": "^8.58.0",
+        "@typescript-eslint/parser": "^8.58.0",
+        "eslint": "^9.17.0",
+        "eslint-config-prettier": "^10.1.8",
+        "typescript": "^5.8.2",
+        "vitest": "~2.1.9",
+        "wrangler": "^3.95.0"
+    }
+}
