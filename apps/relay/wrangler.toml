@@ -1,0 +1,35 @@
+name = "lumen-relay"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# D1 binding — create with `wrangler d1 create lumen-relay`, then paste the
+# generated database_id below. The binding name `DB` is referenced in src/.
+[[d1_databases]]
+binding = "DB"
+database_name = "lumen-relay"
+database_id = "REPLACE_ME_AFTER_WRANGLER_D1_CREATE"
+migrations_dir = "migrations"
+
+# KV binding for rate-limit counters. Create with `wrangler kv namespace create RATE_LIMIT`
+# and paste the id below. Empty bucket means "no rate limiting" — the Worker
+# treats a missing binding as a soft-fail for self-hosters who don't want rate
+# limits at all.
+[[kv_namespaces]]
+binding = "RATE_LIMIT"
+id = "REPLACE_ME_AFTER_WRANGLER_KV_CREATE"
+
+# Per-envelope and per-batch caps. These are validated at request time so the
+# Worker rejects oversized payloads before touching D1.
+[vars]
+MAX_ENVELOPE_BYTES = "262144"
+MAX_BATCH_ENTRIES = "100"
+MAX_PULL_LIMIT = "500"
+DEFAULT_PULL_LIMIT = "100"
+TOMBSTONE_RETENTION_DAYS = "30"
+
+# Rate-limit knobs — override per environment. Set any to "0" to disable.
+RATE_LIMIT_PUSH_REQUESTS_PER_MINUTE = "50"
+RATE_LIMIT_PULL_REQUESTS_PER_MINUTE = "100"
+RATE_LIMIT_PUSH_ENTRIES_PER_HOUR = "1000"
+RATE_LIMIT_BYTES_PER_DAY = "104857600"
