@@ -87,6 +87,8 @@ describe('schema v11', () => {
                 'id',
                 'reason',
                 'session_id',
+                /** Tier 5e — added in v16 for idempotent feedback re-apply. */
+                'sync_id',
             ].sort(),
         );
 

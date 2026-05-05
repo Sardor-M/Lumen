@@ -48,11 +48,22 @@ export {
     runPush,
     runPull,
     runSync,
+    runApply,
     clearLastError,
     computeLocalScopeTags,
     resetCircuitBreakerForTests,
 } from './sync-driver.js';
 export type { SyncResult, DriverOptions } from './sync-driver.js';
+
+export {
+    applyPending,
+    applyConceptCreate,
+    applyTrajectory,
+    applyFeedback,
+    applyTruthUpdate,
+    applyRetire,
+} from './apply.js';
+export type { ApplyOptions, ApplyResult, ApplyFailure } from './apply.js';
 
 export {
     getOrInitSyncState,

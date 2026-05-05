@@ -13,8 +13,9 @@ import type Database from 'better-sqlite3';
  * v13 — exploration-cost telemetry (tokens_spent, skill_hit, exploration_depth, scope_kind, scope_key on query_log)
  * v14 — trajectory review pass (session_review table — records per-session LLM extraction outcomes)
  * v15 — sync journal foundation (sync_state singleton + sync_journal append-only log)
+ * v16 — apply rules audit (concept_truth_history table for LWW losers + concept_feedback.sync_id for idempotent re-apply)
  */
-const CURRENT_VERSION = 15;
+const CURRENT_VERSION = 16;
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS sources (
@@ -105,10 +106,37 @@ const SCHEMA = `
     reason       TEXT,
     session_id   TEXT,
     device_id    TEXT,
-    created_at   TEXT NOT NULL
+    created_at   TEXT NOT NULL,
+    sync_id      TEXT
   );
 
   CREATE INDEX IF NOT EXISTS idx_feedback_concept ON concept_feedback(concept_slug);
+
+  /**
+   * Tier 5e — partial unique index keeps applied feedback rows idempotent
+   * via sync_id while letting pre-5e rows (sync_id IS NULL) coexist.
+   */
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_feedback_sync_id
+    ON concept_feedback(sync_id) WHERE sync_id IS NOT NULL;
+
+  /**
+   * Tier 5e — last-write-wins audit trail for truth_update apply conflicts.
+   * The winner overwrites concepts.compiled_truth; the loser lands here
+   * with superseded_by pointing at the winning sync_id (or NULL if the
+   * winner was a local write without a sync_id).
+   */
+  CREATE TABLE IF NOT EXISTS concept_truth_history (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    slug          TEXT NOT NULL REFERENCES concepts(slug) ON DELETE CASCADE,
+    truth         TEXT,
+    updated_at    TEXT NOT NULL,
+    device_id     TEXT NOT NULL,
+    superseded_by TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_truth_history_slug ON concept_truth_history(slug);
+  CREATE INDEX IF NOT EXISTS idx_truth_history_superseded
+    ON concept_truth_history(superseded_by) WHERE superseded_by IS NOT NULL;
 
   CREATE TABLE IF NOT EXISTS concept_aliases (
     alias          TEXT PRIMARY KEY,
