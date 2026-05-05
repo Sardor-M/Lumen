@@ -62,7 +62,7 @@ if (process.argv.includes('--mcp')) {
         .description(
             'Intelligent knowledge compiler — ingest, chunk, search, and compile any reading into a structured knowledge graph',
         )
-        .version('0.1.0');
+        .version('0.2.0');
 
     registerInit(program);
     registerAdd(program);

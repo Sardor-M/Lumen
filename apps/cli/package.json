@@ -1,6 +1,6 @@
 {
     "name": "lumen-kb",
-    "version": "0.1.4",
+    "version": "0.2.0",
     "description": "Local-first knowledge compiler — ingest articles, papers, PDFs, YouTube into a knowledge graph with hybrid search and MCP server",
     "type": "module",
     "bin": {
