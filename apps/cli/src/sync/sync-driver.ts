@@ -158,8 +158,14 @@ export function runApply(opts: ApplyOptions = {}): SyncResult {
 
 function runApplyInPlace(opts: ApplyOptions, result: SyncResult): void {
     const apply = applyPending(opts);
-    result.applied = apply.applied;
-    result.apply_failed = apply.failed.length;
+    /**
+     * Additive semantics — matches the `errors.push` on the same path. The
+     * function is only called once per `runSync` today, but a future caller
+     * that wants a staged apply (e.g., apply twice with different limits)
+     * shouldn't silently lose the first pass's counts.
+     */
+    result.applied += apply.applied;
+    result.apply_failed += apply.failed.length;
     for (const f of apply.failed) {
         result.errors.push(`apply ${f.op} ${f.sync_id}: ${f.reason}`);
     }

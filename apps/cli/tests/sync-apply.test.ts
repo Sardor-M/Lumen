@@ -98,8 +98,8 @@ function seedPulled(args: {
 }
 
 /** Seed a local concept (the originating-side mutation; journals locally). */
-function seedConcept(slug: string, truth?: string): void {
-    const now = new Date().toISOString();
+function seedConcept(slug: string, truth?: string, updatedAt?: string): void {
+    const now = updatedAt ?? new Date().toISOString();
     upsertConcept({
         slug,
         name: slug,
@@ -361,6 +361,34 @@ describe('applyTruthUpdate (LWW)', () => {
         expect(rows).toHaveLength(1);
         expect(rows[0].truth).toBe('older remote truth');
         expect(rows[0].superseded_by).toBeNull();
+    });
+
+    it('tie: incoming.updated_at == existing → no concept change, no history row', () => {
+        /**
+         * Regression: previously the equal-timestamp case fell through to
+         * the "lost" path and inserted a spurious history row even though
+         * nothing was displaced. A peer with the same tied timestamp also
+         * keeps its own truth, so symmetric audit on both sides would
+         * double-count.
+         */
+        const tiedTimestamp = '2026-05-05T12:00:00.000Z';
+        seedConcept('tie-slug', 'local truth', tiedTimestamp);
+        const entry = seedPulled({
+            op: 'truth_update',
+            entity_id: 'tie-slug',
+            payload: {
+                concept_slug: 'tie-slug',
+                new_truth: 'remote truth at same timestamp',
+                updated_at: tiedTimestamp,
+            },
+        });
+        const result = applyTruthUpdate(entry);
+        expect(result.lww).toBe('tie');
+        expect(getConcept('tie-slug')?.compiled_truth).toBe('local truth');
+        const rows = getDb()
+            .prepare('SELECT 1 FROM concept_truth_history WHERE slug = ?')
+            .all('tie-slug');
+        expect(rows).toHaveLength(0);
     });
 
     it('missing concept throws so applyPending retries on next cycle', () => {

@@ -40,6 +40,7 @@ import { contentHash } from '../utils/hash.js';
 import { buildTrajectoryChunks } from '../trajectory/capture.js';
 import type { TrajectoryMetadata } from '../trajectory/types.js';
 import { listUnapplied, markApplied } from './journal.js';
+import { getOrInitSyncState } from './state.js';
 import type {
     ConceptCreatePayload,
     FeedbackPayload,
@@ -253,12 +254,16 @@ export function applyFeedback(entry: JournalEntry): void {
  * Last-write-wins on `updated_at`. Returns which side won so callers (and
  * tests) can assert the resolution.
  *
+ * Strict greater-than comparison: incoming wins only if `p.updated_at >
+ * existing.updated_at`. Equal timestamps are treated as "tie, local wins"
+ * with no history row — a peer with the same tied timestamp is also keeping
+ * its local truth, so symmetric audit on both sides would double-count.
+ *
  * Winner: `compiled_truth` and `summary` overwritten on `concepts`; loser
  * lands in `concept_truth_history` with `superseded_by = entry.sync_id`.
  *
- * Loser: incoming truth lands in `concept_truth_history` with
- * `superseded_by = NULL` (we don't have a sync_id for the local winner —
- * locally-originated truth_updates don't get sync_ids until they push).
+ * Loser (strictly older): incoming truth lands in `concept_truth_history`
+ * with `superseded_by = NULL` for audit.
  *
  * Idempotency:
  *   - "won" path: existence check on `superseded_by = entry.sync_id`
@@ -269,8 +274,15 @@ export function applyFeedback(entry: JournalEntry): void {
  * Throws when the concept doesn't exist locally — the entry stays
  * `applied_at = NULL` so the next `applyPending` call retries it once the
  * prerequisite `concept_create` has landed.
+ *
+ * Known limitation: simultaneous writes from two clock-synced devices end
+ * up with each device keeping its local truth (asymmetric divergence). A
+ * full fix would require Hybrid Logical Clocks or tracking the originating
+ * sync_id of every concept's current truth — both deferred to v2.
  */
-export function applyTruthUpdate(entry: JournalEntry): { lww: 'won' | 'lost' } {
+export function applyTruthUpdate(entry: JournalEntry): {
+    lww: 'won' | 'lost' | 'tie';
+} {
     const p = entry.payload as TruthUpdatePayload;
     const slug = p.concept_slug;
     const db = getDb();
@@ -292,17 +304,40 @@ export function applyTruthUpdate(entry: JournalEntry): { lww: 'won' | 'lost' } {
     if (alreadyWon) return { lww: 'won' };
 
     if (p.updated_at > existing.updated_at) {
+        /**
+         * Provenance for the displaced truth. We don't track which device's
+         * write produced the current `concepts` row, so use the device this
+         * code is running on — it identifies "where the displacement was
+         * observed", which is the closest honest fact we have.
+         */
+        const localDeviceId = getOrInitSyncState().device_id;
         db.prepare(
             `INSERT INTO concept_truth_history (slug, truth, updated_at, device_id, superseded_by)
              VALUES (?, ?, ?, ?, ?)`,
-        ).run(slug, existing.compiled_truth ?? '', existing.updated_at, 'local', entry.sync_id);
+        ).run(
+            slug,
+            existing.compiled_truth ?? '',
+            existing.updated_at,
+            localDeviceId,
+            entry.sync_id,
+        );
         db.prepare(
             'UPDATE concepts SET compiled_truth = ?, summary = ?, updated_at = ? WHERE slug = ?',
         ).run(p.new_truth, p.new_truth, p.updated_at, slug);
         return { lww: 'won' };
     }
 
-    /** Incoming loses — record it for audit, leave concepts row alone. */
+    if (p.updated_at === existing.updated_at) {
+        /**
+         * Tie — local truth stays; do NOT record an audit row. Each peer
+         * with the same tied timestamp also keeps its local truth, so
+         * recording history on both sides would double-count and pollute
+         * `concept_truth_history` with non-displacement events.
+         */
+        return { lww: 'tie' };
+    }
+
+    /** Incoming loses (strictly older) — record it for audit, leave concepts row alone. */
     const already = db
         .prepare(
             `SELECT 1 FROM concept_truth_history
