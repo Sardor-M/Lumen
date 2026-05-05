@@ -279,7 +279,7 @@ const migrations: Record<number, Migration> = {
             CREATE TABLE IF NOT EXISTS concept_truth_history (
                 id            INTEGER PRIMARY KEY AUTOINCREMENT,
                 slug          TEXT NOT NULL REFERENCES concepts(slug) ON DELETE CASCADE,
-                truth         TEXT NOT NULL,
+                truth         TEXT,
                 updated_at    TEXT NOT NULL,
                 device_id     TEXT NOT NULL,
                 superseded_by TEXT

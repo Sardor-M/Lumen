@@ -316,7 +316,7 @@ export function applyTruthUpdate(entry: JournalEntry): {
              VALUES (?, ?, ?, ?, ?)`,
         ).run(
             slug,
-            existing.compiled_truth ?? '',
+            existing.compiled_truth,
             existing.updated_at,
             localDeviceId,
             entry.sync_id,
