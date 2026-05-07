@@ -660,3 +660,731 @@ describe('runApply (driver entry point)', () => {
         expect(result.errors[0]).toContain('apply feedback');
     });
 });
+
+/** ─── Extended edge-case coverage ───────────────────────────────────── */
+
+describe('boundary + edge-case data', () => {
+    it('trajectory with 0 steps produces only the summary chunk', () => {
+        const entry = seedPulled({
+            op: 'trajectory',
+            entity_id: 'traj-empty',
+            payload: {
+                source_id: 'traj-empty',
+                metadata: {
+                    v: 1,
+                    task: 'no-op trajectory',
+                    steps: [],
+                    outcome: 'success',
+                    agent: 'a',
+                    session_id: 's',
+                    total_tokens: null,
+                    total_elapsed_ms: 0,
+                    scope: { kind: 'personal', key: 'me' },
+                    inputs: null,
+                    codebase_revision: null,
+                },
+            },
+        });
+        applyTrajectory(entry);
+        const chunks = getChunksBySource('traj-empty');
+        expect(chunks).toHaveLength(1);
+        expect(chunks[0].heading).toBe('Trajectory summary');
+    });
+
+    it('trajectory with 30 steps produces 1 summary + 30 step chunks', () => {
+        const steps = Array.from({ length: 30 }, (_, i) => ({
+            n: i,
+            tool: `tool-${i}`,
+            args: { i },
+            result_summary: `step ${i} result`,
+            result_ok: true,
+            elapsed_ms: 5,
+        }));
+        const entry = seedPulled({
+            op: 'trajectory',
+            entity_id: 'traj-large',
+            payload: {
+                source_id: 'traj-large',
+                metadata: {
+                    v: 1,
+                    task: 'large trajectory',
+                    steps,
+                    outcome: 'success',
+                    agent: 'a',
+                    session_id: 's',
+                    total_tokens: null,
+                    total_elapsed_ms: 150,
+                    scope: { kind: 'personal', key: 'me' },
+                    inputs: null,
+                    codebase_revision: null,
+                },
+            },
+        });
+        applyTrajectory(entry);
+        const chunks = getChunksBySource('traj-large');
+        expect(chunks).toHaveLength(31);
+    });
+
+    it('applyConceptCreate with NULL summary AND NULL compiled_truth still inserts the row', () => {
+        const entry = seedPulled({
+            op: 'concept_create',
+            entity_id: 'bare',
+            payload: { slug: 'bare', name: 'Bare', summary: null, compiled_truth: null },
+        });
+        applyConceptCreate(entry);
+        const c = getConcept('bare');
+        expect(c).not.toBeNull();
+        expect(c?.summary).toBeNull();
+        expect(c?.compiled_truth).toBeNull();
+    });
+
+    it('applyTruthUpdate: existing.compiled_truth is NULL → loser stored as NULL in history (column is nullable)', () => {
+        const now = new Date().toISOString();
+        seedConcept('null-truth', undefined, now);
+        const entry = seedPulled({
+            op: 'truth_update',
+            entity_id: 'null-truth',
+            payload: {
+                concept_slug: 'null-truth',
+                new_truth: 'first-actual-truth',
+                updated_at: '2099-01-01T00:00:00.000Z',
+            },
+        });
+        const result = applyTruthUpdate(entry);
+        expect(result.lww).toBe('won');
+        const row = getDb()
+            .prepare('SELECT truth FROM concept_truth_history WHERE slug = ? AND superseded_by = ?')
+            .get('null-truth', entry.sync_id) as { truth: string | null };
+        expect(row.truth).toBeNull();
+        expect(getConcept('null-truth')?.compiled_truth).toBe('first-actual-truth');
+    });
+
+    it('applyPending on an empty journal returns clean result', () => {
+        const result = applyPending();
+        expect(result).toEqual({ applied: 0, failed: [], by_op: {} });
+    });
+
+    it('applyPending with opts.limit = 0 still drains nothing (treats as default? — current contract)', () => {
+        seedPulled({
+            op: 'concept_create',
+            entity_id: 'limit-zero',
+            payload: {
+                slug: 'limit-zero',
+                name: 'limit-zero',
+                summary: null,
+                compiled_truth: null,
+            },
+        });
+        /**
+         * `?? DEFAULT_BATCH_LIMIT` means `limit: 0` falls back to default 200.
+         * Document that explicitly so future readers don't expect "limit:0 = no-op".
+         */
+        const result = applyPending({ limit: 0 });
+        expect(result.applied).toBe(1);
+    });
+});
+
+describe('multi-device LWW chains', () => {
+    it('three truth_updates from three devices, in-order arrival → final = highest updated_at', () => {
+        seedConcept('chain-3', 'truth-0', '2099-01-01T00:00:00.000Z');
+
+        const x = seedPulled({
+            sync_id: makeSyncId(1),
+            op: 'truth_update',
+            entity_id: 'chain-3',
+            payload: {
+                concept_slug: 'chain-3',
+                new_truth: 'X',
+                updated_at: '2099-02-01T00:00:00.000Z',
+            },
+            device_id: 'device-X',
+        });
+        const y = seedPulled({
+            sync_id: makeSyncId(2),
+            op: 'truth_update',
+            entity_id: 'chain-3',
+            payload: {
+                concept_slug: 'chain-3',
+                new_truth: 'Y',
+                updated_at: '2099-03-01T00:00:00.000Z',
+            },
+            device_id: 'device-Y',
+        });
+        const z = seedPulled({
+            sync_id: makeSyncId(3),
+            op: 'truth_update',
+            entity_id: 'chain-3',
+            payload: {
+                concept_slug: 'chain-3',
+                new_truth: 'Z',
+                updated_at: '2099-04-01T00:00:00.000Z',
+            },
+            device_id: 'device-Z',
+        });
+
+        expect(applyTruthUpdate(x).lww).toBe('won');
+        expect(applyTruthUpdate(y).lww).toBe('won');
+        expect(applyTruthUpdate(z).lww).toBe('won');
+
+        expect(getConcept('chain-3')?.compiled_truth).toBe('Z');
+
+        /** Three losers in history: truth-0 (by X), X (by Y), Y (by Z). */
+        const rows = getDb()
+            .prepare(
+                'SELECT truth, superseded_by FROM concept_truth_history WHERE slug = ? ORDER BY id ASC',
+            )
+            .all('chain-3') as Array<{ truth: string; superseded_by: string }>;
+        expect(rows).toHaveLength(3);
+        expect(rows.map((r) => r.truth)).toEqual(['truth-0', 'X', 'Y']);
+        expect(rows.map((r) => r.superseded_by)).toEqual([x.sync_id, y.sync_id, z.sync_id]);
+    });
+
+    it('three truth_updates arriving in REVERSE order → final = highest updated_at, two losers in history', () => {
+        seedConcept('chain-rev', 'truth-0', '2099-01-01T00:00:00.000Z');
+
+        const x = seedPulled({
+            sync_id: makeSyncId(1),
+            op: 'truth_update',
+            entity_id: 'chain-rev',
+            payload: {
+                concept_slug: 'chain-rev',
+                new_truth: 'X',
+                updated_at: '2099-02-01T00:00:00.000Z',
+            },
+        });
+        const y = seedPulled({
+            sync_id: makeSyncId(2),
+            op: 'truth_update',
+            entity_id: 'chain-rev',
+            payload: {
+                concept_slug: 'chain-rev',
+                new_truth: 'Y',
+                updated_at: '2099-03-01T00:00:00.000Z',
+            },
+        });
+        const z = seedPulled({
+            sync_id: makeSyncId(3),
+            op: 'truth_update',
+            entity_id: 'chain-rev',
+            payload: {
+                concept_slug: 'chain-rev',
+                new_truth: 'Z',
+                updated_at: '2099-04-01T00:00:00.000Z',
+            },
+        });
+
+        /** Z first (wins), Y second (loses to Z), X third (loses to Z). */
+        expect(applyTruthUpdate(z).lww).toBe('won');
+        expect(applyTruthUpdate(y).lww).toBe('lost');
+        expect(applyTruthUpdate(x).lww).toBe('lost');
+
+        expect(getConcept('chain-rev')?.compiled_truth).toBe('Z');
+
+        const rows = getDb()
+            .prepare(
+                `SELECT truth, superseded_by FROM concept_truth_history
+                 WHERE slug = ? ORDER BY id ASC`,
+            )
+            .all('chain-rev') as Array<{ truth: string; superseded_by: string | null }>;
+        /** truth-0 (loser to Z, superseded_by=Z), then Y and X each as loser-path rows (superseded_by=NULL). */
+        expect(rows).toHaveLength(3);
+        expect(rows[0]).toEqual({ truth: 'truth-0', superseded_by: z.sync_id });
+        expect(rows[1]).toEqual({ truth: 'Y', superseded_by: null });
+        expect(rows[2]).toEqual({ truth: 'X', superseded_by: null });
+    });
+});
+
+describe('multi-device feedback', () => {
+    it('two devices vote on the same concept — both rows insert, score = sum of deltas', () => {
+        seedConcept('multi-fb');
+
+        const a = seedPulled({
+            sync_id: makeSyncId(1),
+            op: 'feedback',
+            entity_id: 'multi-fb',
+            payload: { concept_slug: 'multi-fb', delta: 1, reason: 'A loved it', session_id: null },
+            device_id: 'device-A',
+        });
+        const b = seedPulled({
+            sync_id: makeSyncId(2),
+            op: 'feedback',
+            entity_id: 'multi-fb',
+            payload: {
+                concept_slug: 'multi-fb',
+                delta: -1,
+                reason: 'B disagreed',
+                session_id: null,
+            },
+            device_id: 'device-B',
+        });
+
+        applyFeedback(a);
+        applyFeedback(b);
+
+        const rows = listFeedback('multi-fb');
+        expect(rows).toHaveLength(2);
+        expect(new Set(rows.map((r) => r.device_id))).toEqual(new Set(['device-A', 'device-B']));
+        expect(feedbackTotal('multi-fb')).toBe(0);
+        expect(getConcept('multi-fb')?.score).toBe(0);
+    });
+
+    it('feedback for a retired concept inserts the row but does not un-retire', () => {
+        seedConcept('already-retired');
+        getDb()
+            .prepare(
+                "UPDATE concepts SET retired_at = '2026-01-01', retire_reason = 'manual' WHERE slug = ?",
+            )
+            .run('already-retired');
+
+        const entry = seedPulled({
+            op: 'feedback',
+            entity_id: 'already-retired',
+            payload: {
+                concept_slug: 'already-retired',
+                delta: 1,
+                reason: 'still useful',
+                session_id: null,
+            },
+        });
+        applyFeedback(entry);
+
+        expect(listFeedback('already-retired')).toHaveLength(1);
+        const c = getConcept('already-retired');
+        expect(c?.retired_at).toBe('2026-01-01');
+        expect(c?.retire_reason).toBe('manual');
+    });
+});
+
+describe('multi-device retire', () => {
+    it('two devices retire the same concept — first wins, COALESCE preserves first timestamp + reason', () => {
+        seedConcept('twin-retire');
+
+        const first = seedPulled({
+            sync_id: makeSyncId(1),
+            op: 'retire',
+            entity_id: 'twin-retire',
+            payload: { concept_slug: 'twin-retire', reason: 'A says outdated' },
+            device_id: 'device-A',
+            created_at: '2026-01-01T00:00:00.000Z',
+        });
+        const second = seedPulled({
+            sync_id: makeSyncId(2),
+            op: 'retire',
+            entity_id: 'twin-retire',
+            payload: { concept_slug: 'twin-retire', reason: 'B says wrong' },
+            device_id: 'device-B',
+            created_at: '2026-06-15T00:00:00.000Z',
+        });
+
+        applyRetire(first);
+        applyRetire(second);
+
+        const c = getConcept('twin-retire');
+        expect(c?.retired_at).toBe('2026-01-01T00:00:00.000Z');
+        expect(c?.retire_reason).toBe('A says outdated');
+    });
+
+    it('retire then later truth_update arrives → concept stays retired, truth still updates', () => {
+        /**
+         * Apply rules treat retire and truth_update independently. A retired
+         * concept can still receive truth_update (compiled_truth gets refreshed
+         * by an LWW write); retired_at is untouched.
+         */
+        seedConcept('zombie', 'old-truth', '2099-01-01T00:00:00.000Z');
+
+        const retire = seedPulled({
+            sync_id: makeSyncId(1),
+            op: 'retire',
+            entity_id: 'zombie',
+            payload: { concept_slug: 'zombie', reason: 'tombstoned' },
+            created_at: '2099-02-01T00:00:00.000Z',
+        });
+        const truth = seedPulled({
+            sync_id: makeSyncId(2),
+            op: 'truth_update',
+            entity_id: 'zombie',
+            payload: {
+                concept_slug: 'zombie',
+                new_truth: 'newer-truth',
+                updated_at: '2099-03-01T00:00:00.000Z',
+            },
+        });
+
+        applyRetire(retire);
+        applyTruthUpdate(truth);
+
+        const c = getConcept('zombie');
+        expect(c?.retired_at).toBe('2099-02-01T00:00:00.000Z');
+        expect(c?.compiled_truth).toBe('newer-truth');
+    });
+});
+
+describe('mixed-op same-slug batch', () => {
+    it('concept_create + truth_update + feedback + retire for same slug applies cleanly in sync_id order', () => {
+        /**
+         * Each `seedPulled` inserts the entry into the journal as a side
+         * effect; we don't need to bind the returned shape locally — the
+         * orchestrator picks them up from `listUnapplied`.
+         */
+        seedPulled({
+            sync_id: makeSyncId(1),
+            op: 'concept_create',
+            entity_id: 'lifecycle',
+            payload: {
+                slug: 'lifecycle',
+                name: 'Lifecycle',
+                summary: 'initial',
+                compiled_truth: 'initial-truth',
+            },
+            created_at: '2099-01-01T00:00:00.000Z',
+        });
+        seedPulled({
+            sync_id: makeSyncId(2),
+            op: 'truth_update',
+            entity_id: 'lifecycle',
+            payload: {
+                concept_slug: 'lifecycle',
+                new_truth: 'refined-truth',
+                updated_at: '2099-02-01T00:00:00.000Z',
+            },
+            created_at: '2099-02-01T00:00:00.000Z',
+        });
+        seedPulled({
+            sync_id: makeSyncId(3),
+            op: 'feedback',
+            entity_id: 'lifecycle',
+            payload: {
+                concept_slug: 'lifecycle',
+                delta: 1,
+                reason: 'great',
+                session_id: null,
+            },
+            created_at: '2099-03-01T00:00:00.000Z',
+        });
+        seedPulled({
+            sync_id: makeSyncId(4),
+            op: 'retire',
+            entity_id: 'lifecycle',
+            payload: { concept_slug: 'lifecycle', reason: 'superseded by X' },
+            created_at: '2099-04-01T00:00:00.000Z',
+        });
+
+        const result = applyPending();
+        expect(result.applied).toBe(4);
+        expect(result.failed).toEqual([]);
+        expect(result.by_op).toEqual({
+            concept_create: 1,
+            truth_update: 1,
+            feedback: 1,
+            retire: 1,
+        });
+
+        const c = getConcept('lifecycle');
+        expect(c?.compiled_truth).toBe('refined-truth');
+        expect(c?.retired_at).toBe('2099-04-01T00:00:00.000Z');
+        expect(c?.retire_reason).toBe('superseded by X');
+        expect(c?.score).toBe(1);
+        expect(listFeedback('lifecycle')).toHaveLength(1);
+
+        /** All four entries should be marked applied. */
+        expect(listUnapplied()).toHaveLength(0);
+    });
+});
+
+describe('orchestrator robustness', () => {
+    it('skips entries that are already applied (applied_at IS NOT NULL)', () => {
+        const entry = seedPulled({
+            op: 'concept_create',
+            entity_id: 'pre-applied',
+            payload: {
+                slug: 'pre-applied',
+                name: 'pre-applied',
+                summary: null,
+                compiled_truth: null,
+            },
+        });
+        getDb()
+            .prepare("UPDATE sync_journal SET applied_at = '2026-01-01' WHERE sync_id = ?")
+            .run(entry.sync_id);
+
+        const result = applyPending();
+        expect(result.applied).toBe(0);
+        /** Concept never inserted because we skipped the entry. */
+        expect(getConcept('pre-applied')).toBeNull();
+    });
+
+    it('opts.limit = 1 processes exactly one entry, leaves the rest unapplied', () => {
+        for (let i = 0; i < 4; i++) {
+            seedPulled({
+                sync_id: makeSyncId(),
+                op: 'concept_create',
+                entity_id: `c${i}`,
+                payload: { slug: `c${i}`, name: `c${i}`, summary: null, compiled_truth: null },
+            });
+        }
+
+        const first = applyPending({ limit: 1 });
+        expect(first.applied).toBe(1);
+        expect(listUnapplied()).toHaveLength(3);
+
+        /** Remaining entries drain on subsequent calls. */
+        applyPending();
+        expect(listUnapplied()).toHaveLength(0);
+    });
+
+    it('partial-failure in a 3-entry batch isolates the failure; first + third still apply', () => {
+        seedPulled({
+            sync_id: makeSyncId(1),
+            op: 'concept_create',
+            entity_id: 'good-1',
+            payload: { slug: 'good-1', name: 'good-1', summary: null, compiled_truth: null },
+        });
+        seedPulled({
+            sync_id: makeSyncId(2),
+            op: 'feedback',
+            entity_id: 'orphan',
+            payload: { concept_slug: 'orphan', delta: 1, reason: null, session_id: null },
+        });
+        seedPulled({
+            sync_id: makeSyncId(3),
+            op: 'concept_create',
+            entity_id: 'good-2',
+            payload: { slug: 'good-2', name: 'good-2', summary: null, compiled_truth: null },
+        });
+
+        const result = applyPending();
+        expect(result.applied).toBe(2);
+        expect(result.failed).toHaveLength(1);
+        expect(result.failed[0].entity_id ?? result.failed[0].op).toBeDefined();
+        expect(result.by_op.concept_create).toBe(2);
+
+        expect(getConcept('good-1')).not.toBeNull();
+        expect(getConcept('good-2')).not.toBeNull();
+
+        /** The failed feedback entry stays in the unapplied queue. */
+        const remaining = listUnapplied();
+        expect(remaining).toHaveLength(1);
+        expect(remaining[0].entity_id).toBe('orphan');
+    });
+
+    it('re-running applyPending after a partial failure retries the failed entries when the prerequisite arrives', () => {
+        /**
+         * Realistic scenario: A captured the concept first (lower sync_id),
+         * then voted on it (higher sync_id). B pulled them out-of-order so
+         * the feedback got pulled before the concept_create arrived.
+         *
+         * First applyPending call (only feedback present): fails with
+         * "concept not found".
+         * Second call (concept_create has now arrived locally): listUnapplied
+         * returns both ordered by sync_id ASC; concept_create lands first,
+         * feedback succeeds on its retry.
+         */
+        const conceptCreateSyncId = makeSyncId(1);
+        const feedbackSyncId = makeSyncId(2);
+
+        /** Feedback gets pulled FIRST (out-of-order) but has a HIGHER sync_id. */
+        seedPulled({
+            sync_id: feedbackSyncId,
+            op: 'feedback',
+            entity_id: 'late-create',
+            payload: { concept_slug: 'late-create', delta: 1, reason: null, session_id: null },
+        });
+        let result = applyPending();
+        expect(result.applied).toBe(0);
+        expect(result.failed.length).toBe(1);
+
+        /** Concept_create arrives later but has a LOWER sync_id (was emitted earlier on the source device). */
+        seedPulled({
+            sync_id: conceptCreateSyncId,
+            op: 'concept_create',
+            entity_id: 'late-create',
+            payload: {
+                slug: 'late-create',
+                name: 'late-create',
+                summary: null,
+                compiled_truth: null,
+            },
+        });
+
+        result = applyPending();
+        expect(result.applied).toBe(2);
+        expect(result.failed).toEqual([]);
+        expect(getConcept('late-create')).not.toBeNull();
+        expect(feedbackTotal('late-create')).toBe(1);
+    });
+});
+
+describe('scope-aware apply', () => {
+    it('codebase-scoped trajectory upserts the scopes registry', () => {
+        const entry = seedPulled({
+            op: 'trajectory',
+            entity_id: 'codebase-traj',
+            scope_kind: 'codebase',
+            scope_key: 'github.com/foo/bar@abc123',
+            payload: {
+                source_id: 'codebase-traj',
+                metadata: {
+                    v: 1,
+                    task: 'codebase trajectory',
+                    steps: [
+                        {
+                            n: 0,
+                            tool: 'read',
+                            args: { f: 'a.ts' },
+                            result_summary: 'ok',
+                            result_ok: true,
+                            elapsed_ms: 1,
+                        },
+                    ],
+                    outcome: 'success',
+                    agent: 'a',
+                    session_id: 's',
+                    total_tokens: null,
+                    total_elapsed_ms: 1,
+                    scope: { kind: 'codebase', key: 'github.com/foo/bar@abc123' },
+                    inputs: null,
+                    codebase_revision: 'abc123',
+                },
+            },
+        });
+        applyTrajectory(entry);
+
+        const scope = getDb()
+            .prepare('SELECT kind, key FROM scopes WHERE kind = ? AND key = ?')
+            .get('codebase', 'github.com/foo/bar@abc123');
+        expect(scope).toBeDefined();
+    });
+
+    it('concept_create with codebase scope sets scope_kind/scope_key on the row', () => {
+        const entry = seedPulled({
+            op: 'concept_create',
+            entity_id: 'scoped',
+            scope_kind: 'codebase',
+            scope_key: 'github.com/x/y',
+            payload: { slug: 'scoped', name: 'scoped', summary: null, compiled_truth: null },
+        });
+        applyConceptCreate(entry);
+
+        const c = getConcept('scoped');
+        expect(c?.scope_kind).toBe('codebase');
+        expect(c?.scope_key).toBe('github.com/x/y');
+    });
+
+    it('mixed-scope batch — apply preserves each entry’s scope independently', () => {
+        seedPulled({
+            sync_id: makeSyncId(1),
+            op: 'concept_create',
+            entity_id: 'pers',
+            scope_kind: 'personal',
+            scope_key: 'me',
+            payload: { slug: 'pers', name: 'pers', summary: null, compiled_truth: null },
+        });
+        seedPulled({
+            sync_id: makeSyncId(2),
+            op: 'concept_create',
+            entity_id: 'cb',
+            scope_kind: 'codebase',
+            scope_key: 'github.com/a/b',
+            payload: { slug: 'cb', name: 'cb', summary: null, compiled_truth: null },
+        });
+        seedPulled({
+            sync_id: makeSyncId(3),
+            op: 'concept_create',
+            entity_id: 'fw',
+            scope_kind: 'framework',
+            scope_key: 'next',
+            payload: { slug: 'fw', name: 'fw', summary: null, compiled_truth: null },
+        });
+        applyPending();
+
+        expect(getConcept('pers')?.scope_kind).toBe('personal');
+        expect(getConcept('cb')?.scope_kind).toBe('codebase');
+        expect(getConcept('cb')?.scope_key).toBe('github.com/a/b');
+        expect(getConcept('fw')?.scope_kind).toBe('framework');
+    });
+});
+
+describe('runApply full coverage', () => {
+    it('processes all five op types in a single applyPending call', () => {
+        const ts = (n: number) => `2099-0${n}-01T00:00:00.000Z`;
+
+        seedPulled({
+            sync_id: makeSyncId(1),
+            op: 'concept_create',
+            entity_id: 'all-ops',
+            payload: {
+                slug: 'all-ops',
+                name: 'all-ops',
+                summary: 'init',
+                compiled_truth: 'init-truth',
+            },
+            created_at: ts(1),
+        });
+        seedPulled({
+            sync_id: makeSyncId(2),
+            op: 'truth_update',
+            entity_id: 'all-ops',
+            payload: { concept_slug: 'all-ops', new_truth: 'updated-truth', updated_at: ts(2) },
+            created_at: ts(2),
+        });
+        seedPulled({
+            sync_id: makeSyncId(3),
+            op: 'feedback',
+            entity_id: 'all-ops',
+            payload: { concept_slug: 'all-ops', delta: 1, reason: null, session_id: null },
+            created_at: ts(3),
+        });
+        seedPulled({
+            sync_id: makeSyncId(4),
+            op: 'trajectory',
+            entity_id: 'traj-all',
+            payload: {
+                source_id: 'traj-all',
+                metadata: {
+                    v: 1,
+                    task: 'all-ops trajectory',
+                    steps: [
+                        {
+                            n: 0,
+                            tool: 'read',
+                            args: { f: 'x.ts' },
+                            result_summary: 'ok',
+                            result_ok: true,
+                            elapsed_ms: 1,
+                        },
+                    ],
+                    outcome: 'success',
+                    agent: 'a',
+                    session_id: 's',
+                    total_tokens: null,
+                    total_elapsed_ms: 1,
+                    scope: { kind: 'personal', key: 'me' },
+                    inputs: null,
+                    codebase_revision: null,
+                },
+            },
+            created_at: ts(4),
+        });
+        seedPulled({
+            sync_id: makeSyncId(5),
+            op: 'retire',
+            entity_id: 'all-ops',
+            payload: { concept_slug: 'all-ops', reason: 'lifecycle complete' },
+            created_at: ts(5),
+        });
+
+        const result = runApply();
+        expect(result.applied).toBe(5);
+        expect(result.apply_failed).toBe(0);
+        expect(result.errors).toEqual([]);
+
+        /** Final state: concept exists, has updated truth, has feedback, is retired; trajectory is its own source. */
+        const c = getConcept('all-ops');
+        expect(c).not.toBeNull();
+        expect(c?.compiled_truth).toBe('updated-truth');
+        expect(c?.score).toBe(1);
+        expect(c?.retired_at).toBe(ts(5));
+        expect(listSources().some((s) => s.id === 'traj-all')).toBe(true);
+        expect(listUnapplied()).toHaveLength(0);
+    });
+});
