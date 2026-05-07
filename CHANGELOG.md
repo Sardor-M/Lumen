@@ -2,6 +2,54 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.0] - 2026-05-05
+
+### Added — End-to-end-encrypted cross-device sync (Tier 5)
+
+Cross-device sync built as five additive sub-tiers. Local-first remains the default — the journal records every concept-touching mutation regardless of whether sync is enabled, and every payload is sealed with X25519 + XChaCha20-Poly1305 before it ever leaves the device. The relay sees only opaque ciphertext and never holds the master key.
+
+- **Tier 5a — Sync journal foundation** (schema v15). Two new tables: `sync_state` (singleton, `CHECK id = 1`) and `sync_journal` (append-only log keyed by UUIDv7-shaped `sync_id`). Five mutator triggers (`upsertConcept`, `recordFeedback`, `updateCompiledTruth`, `retireConcept`, `captureTrajectory`) atomically append journal rows alongside their entity writes inside the same `db.transaction()` — a crash mid-write rolls both back. Per-process monotonic counter on `sync_id` guarantees within-millisecond sortability for cursor pagination.
+- **Tier 5b — Encryption envelope** (`apps/cli/src/sync/crypto.ts`). Pure crypto module implementing the sealed-box scheme from `SYNC-PROTOCOL.md` §3: fresh ephemeral X25519 keypair per envelope, XChaCha20-Poly1305 with a 24-byte random nonce, recipient pubkey derived deterministically from the master key. Domain-separated derivations: `deriveUserHash` (relay routing), `deriveScopeRoutingTag` (per-scope filter via HMAC), `fingerprintMasterKey` (cross-device sanity check). Pure-TS deps (`@noble/ciphers`, `@noble/curves`); no native bindings.
+- **Tier 5c — Relay HTTP client + push/pull driver + `lumen sync` CLI**. Three endpoints (POST/GET/DELETE journal, all keyed by `userHash`) with retry policy: max 5 attempts with backoff `[1s, 2s, 4s, 8s]`, `Retry-After` honored on 429, no sleep on the last attempt. `runPush` / `runPull` / `runSync` orchestrator with per-process consecutive-failure counter that opens a circuit-breaker after 5 failures (cleared via `lumen sync reset-error`). Keyring backends: macOS (`security` shell-out, key fed on stdin via `-w` no-arg form so it never appears in `ps`), Linux (`secret-tool`), file fallback (mode 0600), in-memory (tests). New CLI subcommands: `init` / `enable` / `disable` / `push` / `pull` / `run` / `status` / `reset-error` / `show-key --reveal` / `import-key <base64>` / `forget-key`.
+- **Tier 5d — Reference Cloudflare Worker relay** (`apps/relay/`). Zero-knowledge journal storage backed by D1 + per-`user_hash` rate limiting via KV. Stores opaque envelopes; never holds the master key. Endpoints documented in `apps/relay/README.md`. Comes with a 25-test vitest suite via `@cloudflare/vitest-pool-workers`.
+- **Tier 5e — Apply rules + LWW conflict resolution** (schema v16). `applyPending(opts?)` walks `pulled_at IS NOT NULL AND applied_at IS NULL` rows and dispatches to per-op handlers (`applyConceptCreate`, `applyTrajectory`, `applyFeedback`, `applyTruthUpdate`, `applyRetire`). Each handler writes direct SQL that bypasses the journaling mutators (so applied entries don't re-journal and bounce back to the relay). Per-entry transactional boundary — if apply throws, `markApplied` rolls back so the next call retries. Last-write-wins on `truth_update` with strict `>` comparison: ties (equal `updated_at`) keep the local truth and skip the audit row; real losses (strictly older incoming) land in `concept_truth_history` with `superseded_by` set. New table: `concept_truth_history`. New CLI subcommand: `lumen sync apply` (also baked into `lumen sync run` after push → pull).
+
+### Added — Tests
+
+- **132 new sync tests** across the five sub-tiers:
+    - `sync-journal.test.ts` (21) — schema v15, state singleton, journal CRUD, write-path triggers
+    - `sync-crypto.test.ts` (23) — master key, derivations, encrypt/decrypt round-trip + tamper + version + size
+    - `sync-keyring.test.ts` (14) — memory + file backend round-trip + mode 0600 + env-var selection
+    - `sync-relay-client.test.ts` (15) — POST/GET/DELETE shape, retry policy, `Retry-After`, type guard
+    - `sync-driver.test.ts` (22) — push/pull/sync round-trip, idempotency, scope tags, circuit-breaker, terminal-page cursor
+    - `sync-apply.test.ts` (28) — per-op handlers, LWW won/lost/tie, idempotency, orchestrator
+    - `sync-e2e.test.ts` (4) — full cross-device flow (A → relay → B) verifying ciphertext opacity + state convergence
+    - 5 additions in pre-existing tests for write-path trigger behavior
+- **25 relay tests** in `apps/relay/test/` via `@cloudflare/vitest-pool-workers`.
+- Suite total: **866 passing**, 2 skipped, 11 todo (was 740 in 0.1.4).
+
+### Changed
+
+- `lumen sync show-key --reveal` writes the base64 master key via `process.stdout.write` (no log prefix) so it pipes/copies cleanly.
+- `RelayError` is a branded type rather than a class (project-wide no-classes rule); use `isRelayError(err)` instead of `instanceof`.
+- `lumen sync run` runs **push → pull → apply** in one cycle by default. Apply doesn't touch the network, so apply failures don't trip the circuit-breaker.
+
+### Schema migrations
+
+- **v15** — `sync_state` singleton + append-only `sync_journal` (CHECK on `op` enum, indexes on `pushed_at` / `op` / `(scope_kind, scope_key)` / `applied_at`).
+- **v16** — `concept_truth_history` (last-write-wins audit; nullable `truth` since the displaced row may have been null) + partial UNIQUE INDEX on `concept_feedback(sync_id) WHERE sync_id IS NOT NULL` for apply idempotency.
+
+Both purely additive; existing tables and prior tests untouched.
+
+### Dependencies
+
+- `@noble/ciphers ^1.0.0`, `@noble/curves ^1.6.0` — pure-TS, audited (Paul Miller / Noble suite), ~10 KB each, no native bindings.
+
+### What's NOT in this release
+
+- Multi-device key share UI — QR / BIP39 phrase / age file. Tier 6, deferred. Cross-device onboarding currently means `lumen sync show-key --reveal` on device A → `lumen sync import-key <base64>` on device B.
+- Background sync scheduler. Tier 6, deferred. Push/pull is currently manual via CLI.
+
 ## [0.1.4] - 2026-04-23
 
 ### Added
