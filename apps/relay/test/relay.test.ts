@@ -180,6 +180,32 @@ describe('GET /v1/journal/:user_hash', () => {
         );
         expect(res.status).toBe(400);
     });
+
+    it('accepts the dashed UUIDv7-shape sync_id format the journal generates', async () => {
+        /**
+         * The current `apps/cli/src/sync/journal.ts` produces
+         * `<12 hex ms>-<4 hex counter><16 hex random>` (33 chars, one dash).
+         * Earlier the relay regex was `^[0-9a-f]{16,64}$` which rejected
+         * every dashed id with `invalid_sync_id` — caught only when a real
+         * `lumen sync run` hit the deployed Worker. This test pins the
+         * dashed shape so a regression can't slip past unit tests.
+         */
+        const dashed = '019e02c46022-0000910ff06d05c7e41f';
+        const entry = {
+            sync_id: dashed,
+            envelope: makeEnvelope('dashed-format'),
+            scope_routing_tag: SCOPE_A,
+        };
+        const { status, body } = await postBatch(USER_HASH, [entry]);
+        expect(status).toBe(200);
+        expect(body.accepted).toBe(1);
+        expect(body.rejected).toEqual([]);
+
+        const since = await SELF.fetch(
+            `https://relay.test/v1/journal/${USER_HASH}?since=${dashed}`,
+        );
+        expect(since.status).toBe(200);
+    });
 });
 
 describe('DELETE /v1/journal/:user_hash/:sync_id', () => {
