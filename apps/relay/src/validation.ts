@@ -16,11 +16,15 @@ const USER_HASH_RE = /^[0-9a-f]{16}$/;
  */
 const SCOPE_TAG_RE = /^[0-9a-f]{16}$/;
 /**
- * sync_id is a UUIDv7-shaped lowercase hex string (no dashes). The client
- * generates 32 hex chars (12 ms + 4 monotonic + 16 random) but accepting a
- * range here keeps the relay forward-compatible with id-format tweaks.
+ * sync_id is a UUIDv7-shaped lowercase hex string. The current journal
+ * generator (apps/cli/src/sync/journal.ts) produces 33 chars in the format
+ * `<12 hex unix-ms>-<4 hex monotonic><16 hex random>` — a single dash
+ * between the timestamp prefix and the counter+random tail. Older shapes
+ * without the dash (32 hex chars, no separator) are also accepted so the
+ * relay stays compatible with mixed-version device clusters and any
+ * future format tweaks within the same length envelope.
  */
-const SYNC_ID_RE = /^[0-9a-f]{16,64}$/;
+const SYNC_ID_RE = /^[0-9a-f]{12,16}-?[0-9a-f]{16,52}$/;
 
 export function isValidUserHash(s: string): boolean {
     return USER_HASH_RE.test(s);
