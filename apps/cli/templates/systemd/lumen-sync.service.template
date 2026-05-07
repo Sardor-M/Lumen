@@ -1,0 +1,50 @@
+# Lumen sync — periodic background push/pull/apply (Linux systemd user service).
+#
+# Save this file to:
+#     ~/.config/systemd/user/lumen-sync.service
+#
+# Substitutions you MUST make before saving:
+#     <LUMEN_BIN>  — absolute path to the `lumen` binary. Example:
+#                       /usr/local/bin/lumen   (system install)
+#                       /home/me/.npm-global/bin/lumen   (per-user prefix)
+#     <HOME>       — your home directory (so ~/.lumen resolves). Example:
+#                       /home/me
+#
+# Optional:
+#     LUMEN_KEYRING_BACKEND — set to `file` if you bypass libsecret.
+#                             Comment out the line entirely if you don't.
+#
+# This service is `oneshot` — it runs `lumen sync run` once and exits.
+# Pair it with `lumen-sync.timer` to fire periodically.
+#
+# Enable + start:
+#     systemctl --user daemon-reload
+#     systemctl --user enable --now lumen-sync.timer
+#
+# Verify:
+#     systemctl --user list-timers | grep lumen-sync
+#     journalctl --user -u lumen-sync.service -f
+#
+# Pause / resume:
+#     systemctl --user stop  lumen-sync.timer
+#     systemctl --user start lumen-sync.timer
+#
+# See `lumen install claude` for the complementary Stop hook (Layer 1).
+# A first-class `lumen sync daemon install` subcommand is Tier 6 (0.3.0).
+
+[Unit]
+Description=Lumen sync (periodic push/pull/apply)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=<LUMEN_BIN> sync run
+Environment="HOME=<HOME>"
+# Environment="LUMEN_KEYRING_BACKEND=file"
+
+# Time-bound the run so a slow relay can't pin the unit forever.
+TimeoutStartSec=30
+
+[Install]
+WantedBy=default.target
