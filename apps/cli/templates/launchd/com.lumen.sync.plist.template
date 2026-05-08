@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Lumen sync — periodic background push/pull/apply (macOS LaunchAgent).
+
+  Save this file to:
+      ~/Library/LaunchAgents/com.lumen.sync.plist
+
+  Substitutions you MUST make before saving:
+      <PATH>     — your shell PATH so `lumen` resolves. Example:
+                       /usr/local/bin:/opt/homebrew/bin:/Users/me/.npm-global/bin:/usr/bin:/bin
+      <HOME>     — your home directory (so ~/.lumen resolves). Example:
+                       /Users/me
+
+  Optional substitution:
+      <LUMEN_KEYRING_BACKEND> — set to `file` if you bypass the macOS Keychain.
+                                Delete the key+string pair entirely if you don't.
+
+  Tunable:
+      StartInterval — seconds between sync runs. Defaults to 120 (2 min).
+                      60s for active testing; 300–900s for low-power.
+
+  Load with:
+      launchctl load ~/Library/LaunchAgents/com.lumen.sync.plist
+
+  Verify:
+      launchctl list | grep lumen
+      tail -f /tmp/lumen-sync.log
+
+  Pause / resume:
+      launchctl unload ~/Library/LaunchAgents/com.lumen.sync.plist
+      launchctl load   ~/Library/LaunchAgents/com.lumen.sync.plist
+
+  See `lumen install claude` for the complementary Stop hook that pushes
+  immediately after every Claude Code response (Layer 1 of sync automation).
+  This timer (Layer 2) handles the periodic both-direction sync that the
+  hook can't cover when no agent session is open.
+
+  A first-class `lumen sync daemon install` subcommand that obviates this
+  manual file is Tier 6 (0.3.0).
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.lumen.sync</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/sh</string>
+        <string>-lc</string>
+        <string>lumen sync run</string>
+    </array>
+
+    <key>StartInterval</key>
+    <integer>120</integer>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>&lt;PATH&gt;</string>
+        <key>HOME</key>
+        <string>&lt;HOME&gt;</string>
+        <!-- Uncomment if you switched the keyring off the macOS Keychain.
+        <key>LUMEN_KEYRING_BACKEND</key>
+        <string>&lt;LUMEN_KEYRING_BACKEND&gt;</string>
+        -->
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/lumen-sync.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/lumen-sync.err</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>

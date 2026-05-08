@@ -109,12 +109,36 @@ When a long conversation ends (user says "thanks", "bye", or closes topic), call
 }
 
 /** Content for the Stop hook — nudges Claude to capture knowledge after each response turn. */
-function signalHookScript(): string {
+export function signalHookScript(): string {
     return `#!/usr/bin/env bash
 set -euo pipefail
-# Lumen Stop hook — nudges Claude to capture knowledge after each response turn.
-# Fires on the Stop event (end of Claude's response).
+# Lumen Stop hook — fires on the Stop event (end of Claude's response).
+#
+# Two responsibilities:
+#   1. Auto-push any unpushed journal entries to the relay so cross-device
+#      sync feels transparent inside Claude Code sessions.
+#   2. Nudge the agent to call capture if new knowledge appeared.
 
+# 1. Auto-push (Tier 5e/Tier 6 bridge — Layer 1 of sync automation).
+#    Time-bounded so a slow/offline relay doesn't stall the agent loop;
+#    silently no-ops when sync is disabled, no relay is configured, or the
+#    relay is unreachable. Uses a bash watchdog on macOS where GNU timeout
+#    is not available by default.
+if command -v timeout >/dev/null 2>&1; then
+  timeout 8 lumen sync run >/dev/null 2>&1 || true
+else
+  lumen sync run >/dev/null 2>&1 &
+  SYNC_PID=$!
+  (
+    sleep 8
+    kill "$SYNC_PID" >/dev/null 2>&1 || true
+  ) &
+  WATCHDOG_PID=$!
+  wait "$SYNC_PID" >/dev/null 2>&1 || true
+  kill "$WATCHDOG_PID" >/dev/null 2>&1 || true
+fi
+
+# 2. Capture nudge (existing behavior).
 TOOL_NAME="\${1:-}"
 
 if [[ "$TOOL_NAME" == "Stop" ]]; then

@@ -1,0 +1,30 @@
+# Lumen sync timer — fires `lumen-sync.service` on a schedule.
+#
+# Save this file to:
+#     ~/.config/systemd/user/lumen-sync.timer
+#
+# No substitutions required — the timer references `lumen-sync.service` by name.
+#
+# Tunables:
+#     OnBootSec        — delay after boot before the first run. Default 60s.
+#     OnUnitActiveSec  — interval between runs. Default 120s (2 min).
+#                          60s for active testing; 300–900s for low-power.
+#
+# Enable + start:
+#     systemctl --user daemon-reload
+#     systemctl --user enable --now lumen-sync.timer
+#
+# A first-class `lumen sync daemon install` subcommand is Tier 6 (0.3.0).
+
+[Unit]
+Description=Lumen sync timer
+
+[Timer]
+OnBootSec=60
+OnUnitActiveSec=120
+Unit=lumen-sync.service
+# Catch up on missed runs if the laptop was asleep.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
