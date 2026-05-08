@@ -73,7 +73,12 @@ export function shouldPush(now: number, state: DaemonState, config: SyncDaemonCo
         /** Daemon just started — push the existing backlog immediately. */
         return true;
     }
-    return now - state.lastWriteAt >= config.debounceSec * 1000;
+    const debounceMs = config.debounceSec * 1000;
+    /** Use the later of lastWriteAt / lastPushAt so a recent push also
+     *  resets the window — prevents re-pushing every tick once the burst
+     *  settles but unpushedCount stays > 0 (e.g. relay rejected some rows). */
+    const anchor = Math.max(state.lastWriteAt, state.lastPushAt ?? Number.NEGATIVE_INFINITY);
+    return now - anchor >= debounceMs;
 }
 
 /**

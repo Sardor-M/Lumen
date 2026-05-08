@@ -89,6 +89,19 @@ describe('shouldPush (#29 push debounce)', () => {
         const at = 10_000 + config.debounceSec * 1000;
         expect(shouldPush(at, state, config)).toBe(true);
     });
+
+    it('false when lastPushAt is within debounce window even if lastWriteAt is old', () => {
+        const pushTime = 10_000;
+        const state = emptyState({ unpushedCount: 1, lastWriteAt: 5_000, lastPushAt: pushTime });
+        const within = pushTime + (config.debounceSec * 1000) / 2;
+        expect(shouldPush(within, state, config)).toBe(false);
+    });
+
+    it('true when both lastWriteAt and lastPushAt are older than debounceSec', () => {
+        const state = emptyState({ unpushedCount: 1, lastWriteAt: 5_000, lastPushAt: 6_000 });
+        const after = 6_000 + config.debounceSec * 1000 + 1;
+        expect(shouldPush(after, state, config)).toBe(true);
+    });
 });
 
 describe('recordPull window management', () => {
