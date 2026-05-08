@@ -2,6 +2,73 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added — Tier 6 sync daemon (#26, #28, #29)
+
+A first-class managed sync daemon replaces the manual launchd/systemd templates
+that shipped with 0.2.0 (#25). Users now run `lumen sync daemon install` and
+the CLI handles platform detection, plist/unit generation, lifecycle, and
+adaptive scheduling.
+
+- **`lumen sync daemon install [options]`** — generates a launchd plist
+  (macOS) or systemd user service (Linux), substitutes config as
+  `EnvironmentVariables` / `Environment=`, loads the unit. Detects the
+  manual PR #27 plist/unit shape (`StartInterval` / `Type=oneshot`) and
+  refuses to clobber it without `--replace-manual` so users who copied the
+  templates aren't surprised by a silent overwrite.
+- **`lumen sync daemon uninstall`** — bootouts/disables the unit and removes
+  the plist/service file plus any leftover PID file. Best-effort; safe to
+  run when nothing is installed.
+- **`lumen sync daemon status`** — reports whether a unit is installed,
+  whether it's the managed long-running shape vs. the manual short-lived
+  shape, and whether the PID is alive.
+- **Adaptive interval (#28)** — daemon transitions Active (default 30s
+  cadence) ↔ Idle (default 300s) based on `journal_unpushed` count and a
+  ring buffer of recent pull counts. Active when there's pending push work
+  or recent pulls returned rows; Idle after `--idle-after` (default 3)
+  consecutive empty pulls. Single-fixed-interval-with-skip implementation —
+  works identically across launchd and systemd without two-unit toggling.
+- **Push debounce (#29)** — bursts of journal writes (e.g. during a long
+  `lumen compile`) coalesce into a single push via a `--debounce` (default
+  5s) window. Pull stays on the cadence schedule and is independent of
+  debounce so writes from other devices land promptly. Watermark detection
+  uses `MAX(sync_id)` from `sync_journal` — O(1) on the primary-key index.
+- **Decision module** is pure (`apps/cli/src/sync/daemon-decisions.ts`):
+  `chooseCadence` / `chooseInterval` / `shouldPush` / `recordPull` are all
+  unit-tested without standing up a journal or relay.
+
+### Added — Tests
+
+- `sync-daemon-install.test.ts` (16) — install/uninstall round-trip on
+  macOS + Linux, manual-shape detection, `--replace-manual` flow, XML
+  escaping, idempotent re-run, status reporting.
+- `sync-daemon-decisions.test.ts` (13) — cadence transitions, debounce
+  boundary cases, ring-buffer immutability.
+- `sync-daemon-loop.test.ts` (8) — env-var config parsing, journal
+  watermark behavior, PID file path under `LUMEN_DIR`.
+
+### Changed
+
+- `apps/cli/src/utils/paths.ts` adds `getSyncDaemonPidPath` /
+  `getSyncDaemonLogPath`, scoped under the lumen data dir so the sync
+  daemon's lifecycle files don't collide with the connector-watch daemon's.
+- `apps/cli/src/sync/journal.ts` adds `latestJournalSyncId()` for cheap
+  watermark probing on each daemon tick.
+
+### Migration
+
+Users who installed the manual launchd/systemd templates from PR #27 can
+upgrade with:
+
+```bash
+lumen sync daemon install --replace-manual
+```
+
+The CLI detects the manual shape (`StartInterval` on launchd / `Type=oneshot`
+on systemd), unloads it, and installs the long-running managed daemon in
+its place.
+
 ## [0.2.0] - 2026-05-05
 
 ### Added — End-to-end-encrypted cross-device sync (Tier 5)
