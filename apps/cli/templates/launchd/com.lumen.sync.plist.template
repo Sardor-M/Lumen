@@ -57,12 +57,12 @@
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string><PATH></string>
+        <string>&lt;PATH&gt;</string>
         <key>HOME</key>
-        <string><HOME></string>
+        <string>&lt;HOME&gt;</string>
         <!-- Uncomment if you switched the keyring off the macOS Keychain.
         <key>LUMEN_KEYRING_BACKEND</key>
-        <string><LUMEN_KEYRING_BACKEND></string>
+        <string>&lt;LUMEN_KEYRING_BACKEND&gt;</string>
         -->
     </dict>
 
