@@ -122,8 +122,21 @@ set -euo pipefail
 # 1. Auto-push (Tier 5e/Tier 6 bridge — Layer 1 of sync automation).
 #    Time-bounded so a slow/offline relay doesn't stall the agent loop;
 #    silently no-ops when sync is disabled, no relay is configured, or the
-#    relay is unreachable — the trailing \`|| true\` swallows any non-zero exit.
-timeout 8 lumen sync run >/dev/null 2>&1 || true
+#    relay is unreachable. Uses a bash watchdog on macOS where GNU timeout
+#    is not available by default.
+if command -v timeout >/dev/null 2>&1; then
+  timeout 8 lumen sync run >/dev/null 2>&1 || true
+else
+  lumen sync run >/dev/null 2>&1 &
+  SYNC_PID=$!
+  (
+    sleep 8
+    kill "$SYNC_PID" >/dev/null 2>&1 || true
+  ) &
+  WATCHDOG_PID=$!
+  wait "$SYNC_PID" >/dev/null 2>&1 || true
+  kill "$WATCHDOG_PID" >/dev/null 2>&1 || true
+fi
 
 # 2. Capture nudge (existing behavior).
 TOOL_NAME="\${1:-}"
