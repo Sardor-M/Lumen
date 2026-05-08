@@ -18,7 +18,6 @@
 
 [Unit]
 Description=Lumen sync timer
-Requires=lumen-sync.service
 
 [Timer]
 OnBootSec=60
