@@ -220,3 +220,16 @@ export function countUnpushed(): number {
         .get() as { c: number };
     return row.c;
 }
+
+/**
+ * Highest sync_id currently in the journal, or null if empty. The sync daemon
+ * uses this as a cheap "did anything new arrive since last tick?" watermark
+ * for the push-debounce logic — sync_ids are sortable and the COUNT/MAX
+ * queries are O(1) given the primary-key index.
+ */
+export function latestJournalSyncId(): string | null {
+    const row = getDb().prepare('SELECT MAX(sync_id) as m FROM sync_journal').get() as {
+        m: string | null;
+    };
+    return row.m;
+}

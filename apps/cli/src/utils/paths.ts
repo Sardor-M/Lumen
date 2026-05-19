@@ -43,6 +43,14 @@ export function getDaemonLogPath(): string {
     return join(getDataDir(), 'daemon.log');
 }
 
+export function getSyncDaemonPidPath(): string {
+    return join(getDataDir(), 'sync-daemon.pid');
+}
+
+export function getSyncDaemonLogPath(): string {
+    return join(getDataDir(), 'sync-daemon.log');
+}
+
 export function getOutputDir(): string {
     const dir = join(getDataDir(), 'output');
     ensureDir(dir);

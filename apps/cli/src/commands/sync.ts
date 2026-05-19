@@ -32,11 +32,27 @@ import {
     MASTER_KEY_BYTES,
 } from '../sync/crypto.js';
 import { runPush, runPull, runSync, runApply, clearLastError } from '../sync/sync-driver.js';
+import {
+    DEFAULT_SYNC_DAEMON_CONFIG,
+    installSyncDaemon,
+    syncDaemonStatus,
+    uninstallSyncDaemon,
+    type SyncDaemonConfig,
+} from '../sync/daemon-install.js';
+import { runSyncDaemon } from '../sync/daemon-loop.js';
 import * as log from '../utils/logger.js';
 
 type InitOptions = { relay?: string };
 type ImportKeyOptions = { relay?: string };
 type ShowKeyOptions = { reveal?: boolean };
+
+type DaemonInstallOptions = {
+    intervalActive: string;
+    intervalIdle: string;
+    idleAfter: string;
+    debounce: string;
+    replaceManual?: boolean;
+};
 
 export function registerSync(program: Command): void {
     const sync = program
@@ -312,6 +328,149 @@ export function registerSync(program: Command): void {
                 process.exitCode = 1;
             }
         });
+
+    registerSyncDaemon(sync);
+}
+
+function registerSyncDaemon(sync: Command): void {
+    const daemon = sync
+        .command('daemon')
+        .description(
+            'Install/manage a long-running background sync daemon (adaptive interval + push debounce)',
+        );
+
+    daemon
+        .command('install')
+        .description('Install launchd (macOS) or systemd user (Linux) unit for the sync daemon')
+        .option(
+            '--interval-active <seconds>',
+            'Tick interval when journal_unpushed > 0 or recent pulls returned rows',
+            String(DEFAULT_SYNC_DAEMON_CONFIG.intervalActiveSec),
+        )
+        .option(
+            '--interval-idle <seconds>',
+            'Tick interval when the device has been quiescent',
+            String(DEFAULT_SYNC_DAEMON_CONFIG.intervalIdleSec),
+        )
+        .option(
+            '--idle-after <count>',
+            'Number of consecutive empty pulls before transitioning Active -> Idle',
+            String(DEFAULT_SYNC_DAEMON_CONFIG.idleAfter),
+        )
+        .option(
+            '--debounce <seconds>',
+            'Push-debounce window — bursts of journal writes coalesce into a single push',
+            String(DEFAULT_SYNC_DAEMON_CONFIG.debounceSec),
+        )
+        .option(
+            '--replace-manual',
+            'Replace a manually-installed (PR #27 template) plist/unit if one is detected',
+        )
+        .action((opts: DaemonInstallOptions) => {
+            try {
+                getDb();
+                const config = parseDaemonConfig(opts);
+                const result = installSyncDaemon({
+                    config,
+                    replaceManual: opts.replaceManual ?? false,
+                });
+                log.success(`Sync daemon installed at ${result.unit_path}`);
+                log.table({
+                    platform: result.platform,
+                    interval_active_sec: result.config.intervalActiveSec,
+                    interval_idle_sec: result.config.intervalIdleSec,
+                    idle_after: result.config.idleAfter,
+                    debounce_sec: result.config.debounceSec,
+                    replaced_manual: result.replaced_manual ? 'yes' : 'no',
+                    already_installed: result.already_installed ? 'yes' : 'no',
+                });
+                log.dim(result.follow_up);
+            } catch (err) {
+                log.error(err instanceof Error ? err.message : String(err));
+                process.exitCode = 1;
+            }
+        });
+
+    daemon
+        .command('uninstall')
+        .description('Stop and remove the sync daemon unit')
+        .action(() => {
+            try {
+                const result = uninstallSyncDaemon();
+                if (result.removed) {
+                    log.success(`Sync daemon uninstalled (${result.unit_path})`);
+                } else {
+                    log.warn('Sync daemon was not installed.');
+                }
+            } catch (err) {
+                log.error(err instanceof Error ? err.message : String(err));
+                process.exitCode = 1;
+            }
+        });
+
+    daemon
+        .command('status')
+        .description('Show whether the sync daemon is installed, managed, and running')
+        .action(() => {
+            try {
+                const s = syncDaemonStatus();
+                log.heading('Sync daemon');
+                log.table({
+                    platform: s.platform,
+                    installed: s.installed ? 'yes' : 'no',
+                    shape: s.installed ? (s.managed ? 'managed' : 'manual (PR #27 template)') : '-',
+                    unit_path: s.unit_path,
+                    pid_alive: s.pid_alive ? 'yes' : 'no',
+                    pid_file: s.pid_file,
+                });
+                if (s.manual) {
+                    log.dim(
+                        'Detected a manually-installed plist/unit. Run `lumen sync daemon install --replace-manual` to switch to the managed daemon.',
+                    );
+                }
+            } catch (err) {
+                log.error(err instanceof Error ? err.message : String(err));
+                process.exitCode = 1;
+            }
+        });
+
+    /** Hidden subcommand the launchd/systemd unit invokes. */
+    daemon
+        .command('__run', { hidden: true })
+        .description('(internal) sync daemon loop — invoked by the installed unit')
+        .action(async () => {
+            try {
+                getDb();
+                await runSyncDaemon();
+            } catch (err) {
+                log.error(err instanceof Error ? err.message : String(err));
+                process.exitCode = 1;
+            }
+        });
+}
+
+function parseDaemonConfig(opts: DaemonInstallOptions): SyncDaemonConfig {
+    const positiveInt = (raw: string, fallback: number, label: string): number => {
+        const n = Number(raw);
+        if (!Number.isFinite(n) || n <= 0) {
+            throw new Error(`--${label} must be a positive number; got "${raw}"`);
+        }
+        return Math.floor(n);
+    };
+    return {
+        intervalActiveSec: positiveInt(
+            opts.intervalActive,
+            DEFAULT_SYNC_DAEMON_CONFIG.intervalActiveSec,
+            'interval-active',
+        ),
+        intervalIdleSec: positiveInt(
+            opts.intervalIdle,
+            DEFAULT_SYNC_DAEMON_CONFIG.intervalIdleSec,
+            'interval-idle',
+        ),
+        idleAfter: positiveInt(opts.idleAfter, DEFAULT_SYNC_DAEMON_CONFIG.idleAfter, 'idle-after'),
+        debounceSec: positiveInt(opts.debounce, DEFAULT_SYNC_DAEMON_CONFIG.debounceSec, 'debounce'),
+    };
 }
 
 function logResult(
